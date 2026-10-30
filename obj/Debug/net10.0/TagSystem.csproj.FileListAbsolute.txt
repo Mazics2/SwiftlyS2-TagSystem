@@ -8,3 +8,14 @@ c:\Users\Devrim\Documents\Varsayılan Proje\TagSystem\obj\Debug\net10.0\TagSyste
 c:\Users\Devrim\Documents\Varsayılan Proje\TagSystem\obj\Debug\net10.0\refint\TagSystem.dll
 c:\Users\Devrim\Documents\Varsayılan Proje\TagSystem\obj\Debug\net10.0\TagSystem.pdb
 c:\Users\Devrim\Documents\Varsayılan Proje\TagSystem\obj\Debug\net10.0\ref\TagSystem.dll
+c:\ws\SwiftlyS2-TagSystem\bin\Debug\net10.0\TagSystem.deps.json
+c:\ws\SwiftlyS2-TagSystem\bin\Debug\net10.0\TagSystem.dll
+c:\ws\SwiftlyS2-TagSystem\bin\Debug\net10.0\TagSystem.pdb
+c:\ws\SwiftlyS2-TagSystem\obj\Debug\net10.0\TagSystem.csproj.AssemblyReference.cache
+c:\ws\SwiftlyS2-TagSystem\obj\Debug\net10.0\TagSystem.GeneratedMSBuildEditorConfig.editorconfig
+c:\ws\SwiftlyS2-TagSystem\obj\Debug\net10.0\TagSystem.csproj.CoreCompileInputs.cache
+c:\ws\SwiftlyS2-TagSystem\obj\Debug\net10.0\TagSystem.sourcelink.json
+c:\ws\SwiftlyS2-TagSystem\obj\Debug\net10.0\TagSystem.dll
+c:\ws\SwiftlyS2-TagSystem\obj\Debug\net10.0\refint\TagSystem.dll
+c:\ws\SwiftlyS2-TagSystem\obj\Debug\net10.0\TagSystem.pdb
+c:\ws\SwiftlyS2-TagSystem\obj\Debug\net10.0\ref\TagSystem.dll

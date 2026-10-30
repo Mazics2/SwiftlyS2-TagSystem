@@ -17,7 +17,7 @@ namespace TagSystem;
     Id = "tagsystem",
     Version = "2.1.0",
     Name = "TagSystem",
-    Author = "CanDaysa & Devrim",
+    Author = "CanDaysa, Devrim & SoulSnatcher",
     Description = "Yetki, grup ve oyuncu bazli otomatik Scoreboard (Clan Tag) ve Chat etiket sistemi."
 )]
 public class Plugin(ISwiftlyCore core) : BasePlugin(core)
@@ -32,7 +32,7 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
     private readonly List<Guid> _gameEventGuids = new();
     private Guid _chatHookGuid;
     private CancellationTokenSource? _refreshTimer;
-    private readonly Dictionary<int, float> _lastCmdTime = new();
+    private readonly Dictionary<int, long> _lastCmdTime = new();
 
     public override void Load(bool hotReload)
     {
@@ -179,14 +179,22 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
     private HookResult OnClientChat(int playerId, string text, bool teamOnly)
     {
         if (_adminMenu != null && _adminMenu.TryConsumeChatInput(playerId, text))
-            return HookResult.Stop;
+            return HookResult.CancelOriginal;
 
-        if (TryHandleFallbackChatCommand(playerId, text))
-            return HookResult.Stop;
+        // Sessiz komutsa (/tagmenu vb.) sohbette gostermeden calistir ve orijinali iptal et.
+        if (IsSilentTagSystemCommand(text) && TryHandleFallbackChatCommand(playerId, text))
+            return HookResult.CancelOriginal;
 
-        return _tagService != null
+        var result = _tagService != null
             ? _tagService.HandleChat(playerId, text, teamOnly)
             : HookResult.Continue;
+
+        // Acik komutsa (!tagmenu, !tagcheck vb.) once oyuncu mesaji etiketli olarak basilir,
+        // ardindan komut calistirilir ve yaniti alt satirda gorunur.
+        if (TryHandleFallbackChatCommand(playerId, text))
+            return HookResult.CancelOriginal;
+
+        return result;
     }
 
     private void OnClientPutInServer(IOnClientPutInServerEvent e)
@@ -267,6 +275,8 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
         var c = _config.Commands;
 
         RegisterDual(c.MenuCommand, OnMenuCommand, "TagSystem görsel admin menüsünü açar.");
+        RegisterDual("tagsmenu", OnMenuCommand, "TagSystem görsel admin menüsünü açar.");
+        RegisterDual("etiketmenu", OnMenuCommand, "TagSystem görsel admin menüsünü açar.");
         RegisterDual(c.GiveGroupCommand, OnGiveGroupCommand, "Oyuncuyu bir etiket grubuna ekler/çıkarır: !tagver <hedef> <grup_id>");
         RegisterDual(c.SetCustomTagCommand, OnSetCustomTagCommand, "Oyuncuya özel etiket verir: !ozeltag <hedef> <etiket> [renk] [isim_rengi] [öncelik]");
         RegisterDual(c.RemoveTagCommand, OnRemoveTagCommand, "Oyuncunun özel etiketini/grup üyeliklerini siler: !tagsil <hedef> [grup_id]");
@@ -287,6 +297,14 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
         foreach (var g in _commandGuids)
             Core.Command.UnregisterCommand(g);
         _commandGuids.Clear();
+    }
+
+    private static bool IsSilentTagSystemCommand(string? text)
+    {
+        var trimmed = (text ?? string.Empty).Trim();
+        if (trimmed.Length >= 2 && trimmed[0] == '"' && trimmed[^1] == '"')
+            trimmed = trimmed[1..^1].Trim();
+        return trimmed.Length >= 2 && trimmed[0] == '/';
     }
 
     private bool TryHandleFallbackChatCommand(int playerId, string text)
@@ -393,8 +411,8 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
 
     private bool IsThrottled(IPlayer player)
     {
-        var now = Core.Engine.GlobalVars.CurrentTime;
-        if (_lastCmdTime.TryGetValue(player.Slot, out var last) && MathF.Abs(now - last) < 0.2f)
+        var now = Environment.TickCount64;
+        if (_lastCmdTime.TryGetValue(player.Slot, out var last) && Math.Abs(now - last) < 200)
             return true;
         _lastCmdTime[player.Slot] = now;
         return false;

@@ -19,7 +19,7 @@ public static class PlaceholderHelper
         ulong sid = PlayerHelper.GetSteamId64(player);
         var values = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["NAME"] = ColorHelper.Sanitize(PlayerHelper.GetName(player)),
+            ["NAME"] = ColorHelper.StripControlChars(PlayerHelper.GetName(player)),
             ["STEAMID64"] = sid == 0 ? "-" : sid.ToString(),
             ["STEAMID2"] = sid == 0 ? "-" : SteamIdHelper.ToSteam2(sid),
             ["STEAMID3"] = sid == 0 ? "-" : SteamIdHelper.ToSteam3(sid),

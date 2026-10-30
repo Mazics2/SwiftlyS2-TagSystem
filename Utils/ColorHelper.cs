@@ -108,11 +108,27 @@ public static class ColorHelper
         });
     }
 
+    /// <summary>Verilen metnin tek basina "[GOLD]", "[SILVER]" gibi gorunur bir etiket olup olmadigini kontrol eder.</summary>
+    public static bool IsSingleBracketTag(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return false;
+        var trimmed = text.Trim();
+        return TagRegex.Match(trimmed) is { Success: true } m && m.Value.Length == trimmed.Length;
+    }
+
+    /// <summary>Oyuncu kaynakli metinden yalnizca kontrol karakterlerini (&lt; 0x20, CS2 renk byte'lari vb.) temizler.
+    /// Ozel karakterlere (!, /, ., [...], vb.) dokunmaz.</summary>
+    public static string StripControlChars(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return string.Empty;
+        return new string(text.Where(ch => ch >= 0x20 || ch == '\t').ToArray());
+    }
+
     /// <summary>Oyuncu kaynakli metinden (isim / mesaj) renk etiketlerini ve kontrol karakterlerini temizler.</summary>
     public static string Sanitize(string? text)
     {
         if (string.IsNullOrEmpty(text)) return string.Empty;
-        var noCtrl = new string(text.Where(ch => ch >= 0x20 || ch == '\t').ToArray());
+        var noCtrl = StripControlChars(text);
         // Ic ice yazilarak atlatilmasin diye ("[re[red]d]") degisiklik kalmayana kadar tekrarla.
         string prev;
         do
@@ -125,7 +141,13 @@ public static class ColorHelper
     }
 
     /// <summary>Scoreboard (clan tag) renk desteklemez: tum renk etiketlerini ve kontrol karakterlerini atar.</summary>
-    public static string StripAll(string? text) => Sanitize(text);
+    public static string StripAll(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return string.Empty;
+        var noCtrl = StripControlChars(text);
+        if (IsSingleBracketTag(noCtrl)) return noCtrl.Trim();
+        return Sanitize(noCtrl);
+    }
 
     private static string NearestColor(string hex)
     {

@@ -46,8 +46,8 @@ public class PluginConfig
         public string TeamPrefixCt { get; set; } = "[lightblue](CT) [default]";
         public string TeamPrefixSpec { get; set; } = "[grey](İzleyici) [default]";
 
-        /// <summary>Bu karakterlerle baslayan mesajlar (komutlar) formatlanmaz, SwiftlyS2'ye dokunulmadan iletilir.</summary>
-        public List<string> IgnorePrefixes { get; set; } = new() { "!", "/", "." };
+        /// <summary>Sohbette tamamen gizlenmesi (sessiz kalmasi) istenen ozel on ekler. Varsayilan bos (komutlar ve ozel karakterler etiketli gosterilir, komutlar engellenmez).</summary>
+        public List<string> IgnorePrefixes { get; set; } = new();
 
         /// <summary>Mesajlari sunucu konsoluna da yazdir (orijinal mesaj iptal edildigi icin).</summary>
         public bool LogToConsole { get; set; } = true;

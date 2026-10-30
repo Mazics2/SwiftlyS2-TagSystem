@@ -1,0 +1,8 @@
+c:\ws\SwiftlyS2-TagSystem\bin\Release\net10.0\publish\TagSystem.dll
+c:\ws\SwiftlyS2-TagSystem\bin\Release\net10.0\publish\TagSystem.deps.json
+c:\ws\SwiftlyS2-TagSystem\bin\Release\net10.0\publish\TagSystem.pdb
+c:\ws\SwiftlyS2-TagSystem\bin\Release\net10.0\publish\Tomlyn.dll
+c:\ws\SwiftlyS2-TagSystem\bin\Release\net10.0\publish\runtimes\linux-x64\native\SQLite.Interop.dll
+c:\ws\SwiftlyS2-TagSystem\bin\Release\net10.0\publish\runtimes\osx-x64\native\SQLite.Interop.dll
+c:\ws\SwiftlyS2-TagSystem\bin\Release\net10.0\publish\runtimes\win-x64\native\SQLite.Interop.dll
+c:\ws\SwiftlyS2-TagSystem\bin\Release\net10.0\publish\runtimes\win-x86\native\SQLite.Interop.dll

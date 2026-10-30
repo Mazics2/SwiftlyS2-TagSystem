@@ -120,16 +120,21 @@ public class TagService
         var sender = _core.PlayerManager.GetPlayer(playerId);
         if (!ShouldHandle(sender)) return HookResult.Continue;
 
-        var message = (text ?? string.Empty).Trim();
-        if (message.Length >= 2 && message[0] == '"' && message[^1] == '"') message = message[1..^1].Trim();
+        var message = ColorHelper.StripControlChars(text ?? string.Empty).Trim();
+        if (message.Length >= 2 && message[0] == '"' && message[^1] == '"')
+        {
+            var inner = message[1..^1].Trim();
+            if (inner.Length > 0) message = inner;
+        }
 
         if (message.Length == 0)
-            return _config.Chat.BlockEmptyMessages ? HookResult.Stop : HookResult.Continue;
+            return _config.Chat.BlockEmptyMessages ? HookResult.CancelOriginal : HookResult.Continue;
 
-        // Komutlar (!tagreload, /ban ...) SwiftlyS2'nin komut sistemine dokunulmadan birakilir.
+        // Sadece config'te ozellikle gizlenmesi (sessiz kalmasi) istenen on ekler varsa sohbette gosterme,
+        // ancak CancelOriginal dondur ki ne etiketsiz ham CS2 mesaji ciksin ne de komutlar engellensin.
         foreach (var prefix in _config.Chat.IgnorePrefixes)
             if (!string.IsNullOrEmpty(prefix) && message.StartsWith(prefix, StringComparison.Ordinal))
-                return HookResult.Continue;
+                return HookResult.CancelOriginal;
 
         try
         {
@@ -155,7 +160,8 @@ public class TagService
                     PlayerHelper.GetName(sender), sid == 0 ? "-" : SteamIdHelper.ToSteam2(sid), message);
             }
 
-            // Orijinal mesaji iptal et, ama diger eklentilerin chat hook'lari calismaya devam etsin.
+            // Orijinal etiketsiz CS2 mesajini iptal et; SwiftlyS2 komut sistemi ve diger eklentilerin
+            // chat hook'lari CancelOriginal sayesinde engellenmeden calismaya devam eder.
             return HookResult.CancelOriginal;
         }
         catch (Exception ex)
@@ -173,19 +179,28 @@ public class TagService
         senderAlive = PlayerHelper.IsAlive(sender);
 
         var values = PlaceholderHelper.BuildPlayerValues(sender, tag);
+        var safeName = values["NAME"];
+        var safeMessage = ColorHelper.StripControlChars(rawMessage);
 
         // Etiket metni (placeholder + renk)
-        var chatTag = ColorHelper.NormalizeTags(PlaceholderHelper.Apply(tag.ChatTag, values), senderTeam).Trim();
-        if (chatTag.Length > 0 && tag.UseTagColor)
+        var rawTagText = ColorHelper.StripControlChars(PlaceholderHelper.Apply(tag.ChatTag, values)).Trim();
+        bool protectTagLiteral = ColorHelper.IsSingleBracketTag(rawTagText);
+        var chatTagBody = protectTagLiteral ? "{RAW_CHAT_TAG}" : ColorHelper.NormalizeTags(rawTagText, senderTeam);
+
+        var chatTag = chatTagBody;
+        if (rawTagText.Length > 0 && tag.UseTagColor)
         {
             var colorTag = ColorHelper.ToChatTag(tag.ChatTagColor, senderTeam);
-            if (colorTag.Length > 0) chatTag = $"{colorTag}{chatTag}[default]";
+            if (colorTag.Length > 0) chatTag = $"{colorTag}{chatTagBody}[default]";
         }
 
+        // 1. Adim: Renk kodlarini iceren sablon placeholder'larini yerlestir;
+        // oyuncu ismi, mesaji ve tekli etiket metnini Helper.Colored sonrasina birak.
         values["CHAT_TAG"] = chatTag;
         values["NAME_COLOR"] = ColorHelper.ToChatTag(tag.NameColor, senderTeam);
         values["MESSAGE_COLOR"] = ColorHelper.ToChatTag(tag.MessageColor, senderTeam);
-        values["MESSAGE"] = ColorHelper.Sanitize(rawMessage);
+        values["NAME"] = "{NAME}";
+        values["MESSAGE"] = "{MESSAGE}";
         values["DEAD"] = !senderAlive && senderTeam is "T" or "CT" ? _config.Chat.DeadPrefix : string.Empty;
         values["TEAMCHAT"] = !teamOnly ? string.Empty : senderTeam switch
         {
@@ -195,12 +210,21 @@ public class TagService
         };
 
         var format = tag.ChatFormat;
-        if (chatTag.Length == 0) format = format.Replace("{CHAT_TAG} ", string.Empty).Replace("{CHAT_TAG}", string.Empty);
+        if (rawTagText.Length == 0) format = format.Replace("{CHAT_TAG} ", string.Empty).Replace("{CHAT_TAG}", string.Empty);
 
-        // Once format'taki (config kaynakli, guvenilir) renk etiketlerini normalize et,
-        // sonra placeholder'lari tek geciste doldur. Oyuncu kaynakli degerler zaten sanitize edildi.
-        var line = PlaceholderHelper.Apply(ColorHelper.NormalizeTags(format, senderTeam), values).TrimStart();
-        return Helper.Colored(ColorHelper.NormalizeTags(line, senderTeam));
+        var templateLine = PlaceholderHelper.Apply(ColorHelper.NormalizeTags(format, senderTeam), values).TrimStart();
+        var coloredLine = Helper.Colored(ColorHelper.NormalizeTags(templateLine, senderTeam));
+        if (coloredLine.Length > 0 && coloredLine[0] != ' ' && coloredLine.Any(ch => ch < 0x20))
+            coloredLine = " " + coloredLine;
+
+        // 2. Adim: Oyuncu kaynakli metinleri tek geciste yerlestir (özel karakterler korunur, renk/placeholder enjeksiyonu engellenir).
+        var literalValues = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["RAW_CHAT_TAG"] = rawTagText,
+            ["NAME"] = safeName,
+            ["MESSAGE"] = safeMessage
+        };
+        return PlaceholderHelper.Apply(coloredLine, literalValues);
     }
 
     // ================================ ORTAK =================================

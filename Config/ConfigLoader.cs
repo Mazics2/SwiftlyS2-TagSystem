@@ -186,7 +186,16 @@ public class ConfigLoader
             ch.TeamPrefixT = Str(c, "team_prefix_t") ?? ch.TeamPrefixT;
             ch.TeamPrefixCt = Str(c, "team_prefix_ct") ?? ch.TeamPrefixCt;
             ch.TeamPrefixSpec = Str(c, "team_prefix_spec") ?? ch.TeamPrefixSpec;
-            ch.IgnorePrefixes = StrList(c, "ignore_prefixes") ?? ch.IgnorePrefixes;
+            var rawPrefixes = StrList(c, "ignore_prefixes");
+            if (rawPrefixes != null)
+            {
+                // Eski varsayilan ["!", "/", "."] listesi komutlarda ve ozel karakterlerde etiketin gorunmemesine
+                // yol actigi icin otomatik olarak bos listeye (etiketli gosterim) gecirilir.
+                if (rawPrefixes.Count == 3 && rawPrefixes.Contains("!") && rawPrefixes.Contains("/") && rawPrefixes.Contains("."))
+                    ch.IgnorePrefixes = new List<string>();
+                else
+                    ch.IgnorePrefixes = rawPrefixes;
+            }
             ch.LogToConsole = Bool(c, "log_to_console", ch.LogToConsole);
             ch.DeadTalkOnlyToDead = Bool(c, "dead_talk_only_to_dead", ch.DeadTalkOnlyToDead);
             ch.BlockEmptyMessages = Bool(c, "block_empty_messages", ch.BlockEmptyMessages);
