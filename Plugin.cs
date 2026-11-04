@@ -17,7 +17,7 @@ namespace TagSystem;
     Id = "tagsystem",
     Version = "2.1.0",
     Name = "TagSystem",
-    Author = "CanDaysa, Devrim & SoulSnatcher",
+    Author = "surfevo",
     Description = "Yetki, grup ve oyuncu bazli otomatik Scoreboard (Clan Tag) ve Chat etiket sistemi."
 )]
 public class Plugin(ISwiftlyCore core) : BasePlugin(core)
