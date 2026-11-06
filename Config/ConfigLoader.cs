@@ -135,6 +135,7 @@ public class ConfigLoader
     {
         if (!string.IsNullOrWhiteSpace(e.DisplayName)) sb.AppendLine($"display_name = {Q(e.DisplayName)}");
         if (e.ChatTag != null) sb.AppendLine($"chat_tag = {Q(e.ChatTag)}");
+        if (!string.IsNullOrWhiteSpace(e.Frame)) sb.AppendLine($"frame = {Q(e.Frame)}");
         if (e.ScoreboardTag != null) sb.AppendLine($"scoreboard_tag = {Q(e.ScoreboardTag)}");
         if (!string.IsNullOrWhiteSpace(e.ChatTagColor)) sb.AppendLine($"chat_tag_color = {Q(e.ChatTagColor)}");
         if (!string.IsNullOrWhiteSpace(e.NameColor)) sb.AppendLine($"name_color = {Q(e.NameColor)}");
@@ -295,7 +296,9 @@ public class ConfigLoader
     {
         e.DisplayName = Str(t, "display_name") ?? e.DisplayName;
         e.ChatTag = Str(t, "chat_tag") ?? e.ChatTag;
-        e.ScoreboardTag = Str(t, "scoreboard_tag") ?? e.ScoreboardTag;
+        e.Frame = Str(t, "frame") ?? e.Frame;
+        var rawScoreboardTag = Str(t, "scoreboard_tag") ?? e.ScoreboardTag;
+        e.ScoreboardTag = rawScoreboardTag != null ? TagSystem.Core.TagService.StripOuterBrackets(rawScoreboardTag) : null;
         e.ChatTagColor = Str(t, "chat_tag_color") ?? e.ChatTagColor;
         e.NameColor = Str(t, "name_color") ?? e.NameColor;
         e.MessageColor = Str(t, "message_color") ?? e.MessageColor;
@@ -321,7 +324,7 @@ public class ConfigLoader
 
         void Check(TagEntry e, string? value, string key)
         {
-            if (!string.IsNullOrWhiteSpace(value) && ColorHelper.ToChatTag(value, "T").Length == 0)
+            if (!string.IsNullOrWhiteSpace(value) && !ColorHelper.IsValidColor(value))
                 Warnings.Add($"'{e.Id}': {key} = '{value}' tanınmadı. Geçerli renkler: {string.Join(", ", ColorHelper.AvailableColors)}, teamcolor veya #RRGGBB.");
         }
     }

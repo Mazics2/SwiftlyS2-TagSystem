@@ -21,8 +21,8 @@ public class PluginConfig
         /// <summary>Botlara da etiket uygulansin mi?</summary>
         public bool ApplyToBots { get; set; } = false;
 
-        /// <summary>Oyun bazen clan tag'i sifirlar; bu aralikla (sn) tekrar uygulanir. 0 = kapali.</summary>
-        public float ScoreboardRefreshSeconds { get; set; } = 5f;
+        /// <summary>Oyun bazen clan tag'i sifirlar; bu aralikla (sn) tekrar uygulanir. 0 = kapali (onerilen). Eger acilacaksa en az 30-60 saniye onerilir.</summary>
+        public float ScoreboardRefreshSeconds { get; set; } = 0f;
 
         /// <summary>Clan tag icin maksimum uzunluk (m_szClan 32 byte; UTF-8 icin guvenli limit).</summary>
         public int ScoreboardMaxLength { get; set; } = 24;
@@ -49,8 +49,8 @@ public class PluginConfig
         /// <summary>Sohbette tamamen gizlenmesi (sessiz kalmasi) istenen ozel on ekler. Varsayilan bos (komutlar ve ozel karakterler etiketli gosterilir, komutlar engellenmez).</summary>
         public List<string> IgnorePrefixes { get; set; } = new();
 
-        /// <summary>Mesajlari sunucu konsoluna da yazdir (orijinal mesaj iptal edildigi icin).</summary>
-        public bool LogToConsole { get; set; } = true;
+        /// <summary>Mesajlari sunucu konsoluna da yazdir (orijinal mesaj iptal edildigi icin). Varsayilan false (konsolu temiz tutar).</summary>
+        public bool LogToConsole { get; set; } = false;
 
         /// <summary>Olu oyuncularin mesajini yalnizca olu oyuncular gorsun (CS2 varsayilan davranisi gibi). false = herkes gorur.</summary>
         public bool DeadTalkOnlyToDead { get; set; } = false;

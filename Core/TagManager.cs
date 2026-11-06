@@ -15,7 +15,7 @@ namespace TagSystem.Core;
 /// </summary>
 public class TagManager
 {
-    private const long CacheTtlMs = 10_000;
+    private const long CacheTtlMs = 60_000;
 
     private readonly ISwiftlyCore _core;
     private PluginConfig _config;
@@ -38,6 +38,8 @@ public class TagManager
 
     public void InvalidateAll() => _cache.Clear();
     public void Invalidate(int slot) => _cache.Remove(slot);
+
+    public ResolvedTag BuildResolvedTag(TagEntry t) => Build(t);
 
     public ResolvedTag Resolve(IPlayer? player)
     {
@@ -121,6 +123,7 @@ public class TagManager
             Label = t.Label,
             ChatTag = t.Enabled ? (t.ChatTag ?? d.ChatTag ?? string.Empty) : string.Empty,
             ScoreboardTag = t.Enabled ? (t.ScoreboardTag ?? d.ScoreboardTag ?? string.Empty) : string.Empty,
+            Frame = t.Frame ?? d.Frame,
             ChatTagColor = t.ChatTagColor ?? d.ChatTagColor ?? string.Empty,
             NameColor = t.NameColor ?? d.NameColor ?? "teamcolor",
             MessageColor = t.MessageColor ?? d.MessageColor ?? "default",

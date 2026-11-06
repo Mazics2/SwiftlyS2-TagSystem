@@ -39,18 +39,213 @@ public static class ColorHelper
         ("orange",      255, 156,   0),
     };
 
-    /// <summary>Kullanicilarin yazabilecegi ek takma adlar.</summary>
+    /// <summary>Kullanicilarin yazabilecegi ek takma adlar (Turkce ve alternatif isimler).</summary>
     private static readonly Dictionary<string, string> Aliases = new(StringComparer.OrdinalIgnoreCase)
     {
+        // Default / Sifirlama
         { "default", "default" },
         { "/", "default" },
         { "reset", "default" },
+        { "varsayilan", "default" },
+        { "normal", "default" },
+
+        // Gri tonlari
         { "gray", "grey" },
+        { "gri", "grey" },
+        { "silver", "silver" },
+        { "gumus", "silver" },
+        { "platin", "silver" },
+        { "platinum", "silver" },
+        { "bluegrey", "bluegrey" },
+        { "mavigri", "bluegrey" },
+        { "fume", "bluegrey" },
+        { "antrasit", "bluegrey" },
+        { "charcoal", "bluegrey" },
+        { "kursuni", "bluegrey" },
+        { "siyah", "grey" },
+        { "black", "grey" },
+
+        // Beyaz
+        { "white", "white" },
+        { "beyaz", "white" },
+        { "kar", "white" },
+        { "buzbeyazi", "white" },
+
+        // Kirmizi tonlari
+        { "red", "red" },
+        { "kirmizi", "red" },
+        { "yakut", "red" },
+        { "ruby", "red" },
+        { "lightred", "lightred" },
+        { "acikkirmizi", "lightred" },
+        { "coral", "lightred" },
+        { "mercan", "lightred" },
+        { "darkred", "darkred" },
+        { "koyukirmizi", "darkred" },
+        { "bordo", "darkred" },
+        { "maroon", "darkred" },
+        { "burgundy", "darkred" },
+        { "visne", "darkred" },
+        { "visnecurugu", "darkred" },
+        { "cherry", "darkred" },
+        { "kor", "darkred" },
+
+        // Mavi tonlari
+        { "blue", "blue" },
+        { "mavi", "blue" },
+        { "safir", "blue" },
+        { "sapphire", "blue" },
+        { "lightblue", "lightblue" },
+        { "acikmavi", "lightblue" },
+        { "turkuaz", "lightblue" },
+        { "turquoise", "lightblue" },
         { "cyan", "lightblue" },
+        { "aqua", "lightblue" },
+        { "camgobegi", "lightblue" },
+        { "gokyuzu", "lightblue" },
+        { "sky", "lightblue" },
+        { "teal", "lightblue" },
+        { "darkblue", "darkblue" },
+        { "koyumavi", "darkblue" },
+        { "lacivert", "darkblue" },
+        { "navy", "darkblue" },
+        { "gecemavisi", "darkblue" },
+
+        // Yesil tonlari
+        { "green", "green" },
+        { "yesil", "green" },
+        { "koyuyesil", "green" },
+        { "zumrut", "green" },
+        { "emerald", "green" },
+        { "lime", "lime" },
+        { "acikyesil", "lime" },
+        { "fistik", "lime" },
+        { "fistikyesili", "lime" },
+        { "limon", "lime" },
+        { "lemon", "lime" },
+        { "olive", "olive" },
+        { "zeytin", "olive" },
+        { "zeytinyesili", "olive" },
+
+        // Sari & Altin tonlari
+        { "yellow", "yellow" },
+        { "sari", "yellow" },
+        { "hardal", "yellow" },
+        { "mustard", "yellow" },
+        { "lightyellow", "lightyellow" },
+        { "aciksari", "lightyellow" },
+        { "bej", "lightyellow" },
+        { "krem", "lightyellow" },
+        { "cream", "lightyellow" },
+        { "gold", "gold" },
+        { "altin", "gold" },
+        { "altinsarisi", "gold" },
+        { "bronz", "gold" },
+        { "bronze", "gold" },
+
+        // Turuncu tonlari
+        { "orange", "orange" },
+        { "turuncu", "orange" },
+        { "kahverengi", "orange" },
+        { "brown", "orange" },
+        { "tarcin", "orange" },
+        { "kehribar", "orange" },
+        { "amber", "orange" },
+        { "kavunici", "orange" },
+        { "peach", "orange" },
+
+        // Mor & Pembe tonlari
+        { "purple", "purple" },
+        { "mor", "purple" },
+        { "koyumor", "purple" },
+        { "violet", "purple" },
+        { "lightpurple", "lightpurple" },
+        { "acikmor", "lightpurple" },
+        { "lila", "lightpurple" },
+        { "lavanta", "lightpurple" },
+        { "lavender", "lightpurple" },
+        { "eflatun", "lightpurple" },
+        { "magenta", "magenta" },
+        { "pembe", "magenta" },
+        { "fusya", "magenta" },
         { "pink", "magenta" },
-        { "teamcolor", "teamcolor" }, // ozel: oyuncunun takimina gore cozulur
+
+        // Takim bazli dinamik renkler
+        { "teamcolor", "teamcolor" },
         { "team", "teamcolor" },
+        { "takim", "teamcolor" },
+        { "takimrengi", "teamcolor" },
+        { "tcolor", "gold" },
+        { "trengi", "gold" },
+        { "ctcolor", "lightblue" },
+        { "ctrengi", "lightblue" },
+        { "speccolor", "grey" },
     };
+
+    /// <summary>Cok renkli gecis / gradyan efektleri sozlugu (CS2 renk kodlari dizisi).</summary>
+    public static readonly Dictionary<string, string[]> GradientPalettes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        { "rainbow",    new[] { "red", "orange", "yellow", "lime", "lightblue", "blue", "purple", "magenta" } },
+        { "gokkusagi",  new[] { "red", "orange", "yellow", "lime", "lightblue", "blue", "purple", "magenta" } },
+        { "fire",       new[] { "darkred", "red", "lightred", "orange", "yellow", "lightyellow" } },
+        { "ates",       new[] { "darkred", "red", "lightred", "orange", "yellow", "lightyellow" } },
+        { "ice",        new[] { "darkblue", "blue", "lightblue", "silver", "white" } },
+        { "buz",        new[] { "darkblue", "blue", "lightblue", "silver", "white" } },
+        { "neon",       new[] { "lime", "lightblue", "magenta", "lightpurple" } },
+        { "sunset",     new[] { "purple", "lightpurple", "magenta", "lightred", "orange", "gold" } },
+        { "gunbatimi",  new[] { "purple", "lightpurple", "magenta", "lightred", "orange", "gold" } },
+        { "toxic",      new[] { "green", "olive", "lime", "lightyellow" } },
+        { "zehir",      new[] { "green", "olive", "lime", "lightyellow" } },
+        { "police",     new[] { "red", "lightred", "white", "blue", "lightblue" } },
+        { "polis",      new[] { "red", "lightred", "white", "blue", "lightblue" } },
+        { "blood",      new[] { "darkred", "red", "lightred" } },
+        { "kan",        new[] { "darkred", "red", "lightred" } },
+        { "royal",      new[] { "gold", "yellow", "purple", "lightpurple" } },
+        { "kraliyet",   new[] { "gold", "yellow", "purple", "lightpurple" } },
+        { "matrix",     new[] { "green", "lime", "olive" } },
+        { "pastel",     new[] { "lightyellow", "lightblue", "lightpurple", "lightred" } },
+        // Yeni Tematik Gradyanlar
+        { "galaxy",     new[] { "darkblue", "purple", "lightpurple", "silver", "white" } },
+        { "galaksi",    new[] { "darkblue", "purple", "lightpurple", "silver", "white" } },
+        { "cyberpunk",  new[] { "yellow", "lightred", "magenta", "lightblue", "lime" } },
+        { "siberpunk",  new[] { "yellow", "lightred", "magenta", "lightblue", "lime" } },
+        { "lava",       new[] { "darkred", "red", "orange", "gold" } },
+        { "lav",        new[] { "darkred", "red", "orange", "gold" } },
+        { "aurora",     new[] { "green", "lime", "lightblue", "purple" } },
+        { "kuzeyisiklari", new[] { "green", "lime", "lightblue", "purple" } },
+        { "ghost",      new[] { "grey", "bluegrey", "silver", "white" } },
+        { "hayalet",    new[] { "grey", "bluegrey", "silver", "white" } },
+        { "nature",     new[] { "green", "olive", "lime", "lightyellow" } },
+        { "doga",       new[] { "green", "olive", "lime", "lightyellow" } },
+        { "candy",      new[] { "magenta", "lightpurple", "lightblue", "white" } },
+        { "seker",      new[] { "magenta", "lightpurple", "lightblue", "white" } },
+        { "goldrush",   new[] { "olive", "gold", "yellow", "lightyellow", "white" } },
+        { "altinhirsizi", new[] { "olive", "gold", "yellow", "lightyellow", "white" } },
+        // Cift Renkli (Dama / Two-Tone) Desenler
+        { "redblue",    new[] { "red", "blue" } },
+        { "kirmizimavi", new[] { "red", "blue" } },
+        { "pinkblue",   new[] { "magenta", "lightblue" } },
+        { "pembemavi",  new[] { "magenta", "lightblue" } },
+        { "goldblack",  new[] { "gold", "grey" } },
+        { "altingri",   new[] { "gold", "grey" } },
+        { "greenyellow", new[] { "lime", "yellow" } },
+        { "yesilsari",  new[] { "lime", "yellow" } },
+        { "blackwhite", new[] { "grey", "white" } },
+        { "siyahbeyaz", new[] { "grey", "white" } },
+        { "redwhite",   new[] { "red", "white" } },
+        { "kirmizibeyaz", new[] { "red", "white" } },
+    };
+
+    /// <summary>UI ve menu listelerinde gosterilecek ana efekt adlari.</summary>
+    public static readonly string[] PrimaryGradients =
+    {
+        "rainbow", "fire", "ice", "neon", "sunset", "toxic", "police", "blood", "royal", "matrix", "pastel",
+        "galaxy", "cyberpunk", "lava", "aurora", "ghost", "nature", "candy", "goldrush",
+        "redblue", "pinkblue", "goldblack", "greenyellow", "blackwhite", "redwhite"
+    };
+
+    /// <summary>Gokkusagi (Rainbow) siralamasindaki renkler (geriye donuk uyumluluk).</summary>
+    public static readonly string[] RainbowColors = GradientPalettes["rainbow"];
 
     private static readonly HashSet<string> KnownTags = new(
         Palette.Select(p => p.Name).Concat(new[] { "default", "/" }), StringComparer.OrdinalIgnoreCase);
@@ -58,7 +253,53 @@ public static class ColorHelper
     private static readonly Regex TagRegex = new(@"\[(?<n>[a-zA-Z/]+)\]", RegexOptions.Compiled);
     private static readonly Regex HexRegex = new(@"^#?(?<h>[0-9A-Fa-f]{6}|[0-9A-Fa-f]{3})$", RegexOptions.Compiled);
 
-    public static IReadOnlyList<string> AvailableColors => Palette.Select(p => p.Name).Prepend("default").ToList();
+    public static IReadOnlyList<string> AvailableColors =>
+        Palette.Select(p => p.Name)
+            .Prepend("default")
+            .Append("teamcolor")
+            .Concat(PrimaryGradients)
+            .ToList();
+
+    /// <summary>Verilen ismin cok renkli bir gradyan efekti olup olmadigini kontrol eder.</summary>
+    public static bool IsGradient(string? name) =>
+        !string.IsNullOrWhiteSpace(name) && GradientPalettes.ContainsKey(name);
+
+    /// <summary>Verilen metnin her harfini sirayla secilen gradyan efektinin renklerine donusturur.</summary>
+    public static string ApplyGradient(string text, string gradientName)
+    {
+        if (string.IsNullOrEmpty(text)) return string.Empty;
+        if (!GradientPalettes.TryGetValue(gradientName, out var colors) || colors.Length == 0)
+            return text;
+
+        var clean = StripControlChars(text);
+        var sb = new System.Text.StringBuilder(clean.Length * 14);
+        int colorIdx = 0;
+        foreach (char ch in clean)
+        {
+            if (char.IsWhiteSpace(ch))
+            {
+                sb.Append(ch);
+                continue;
+            }
+            sb.Append($"[{colors[colorIdx % colors.Length]}]{ch}");
+            colorIdx++;
+        }
+        sb.Append("[default]");
+        return sb.ToString();
+    }
+
+    /// <summary>Verilen metnin her harfini sirayla gokkusagi renklerine donusturur.</summary>
+    public static string ApplyRainbow(string text) => ApplyGradient(text, "rainbow");
+
+    /// <summary>Verilen renk adinin, hex kodunun veya efektin gecerli olup olmadigini dogrular.</summary>
+    public static bool IsValidColor(string? color)
+    {
+        if (string.IsNullOrWhiteSpace(color)) return false;
+        var c = color.Trim();
+        if (c.StartsWith('[') && c.EndsWith(']') && c.Length > 2) c = c[1..^1];
+        if (Aliases.ContainsKey(c) || KnownTags.Contains(c) || IsGradient(c)) return true;
+        return HexRegex.IsMatch(c);
+    }
 
     /// <summary>
     /// "gold", "[gold]", "#FFD700", "FFD700", "teamcolor" gibi bir degeri "[gold]" seklinde bir chat etiketine cevirir.

@@ -19,6 +19,13 @@ public class TagService
     /// <summary>Oyuncunun eklenti dokunmadan onceki (Steam grubu) clan tag'i. Unload'da geri yuklenir.</summary>
     private readonly Dictionary<int, string> _originalClan = new();
 
+    /// <summary>Oyuncuya eklenti tarafindan en son basariyla uygulanan clan tag. Gereksiz ag selini ve CS2 clan desync dongusunu onler.</summary>
+    private readonly Dictionary<int, string> _appliedClan = new();
+
+    /// <summary>Chat flood / spam korumasi: oyuncunun en son sohbet mesaji gonderdigi zaman (Environment.TickCount64).</summary>
+    private readonly Dictionary<int, long> _lastChatTime = new();
+    private const long ChatCooldownMs = 500;
+
     public TagService(ISwiftlyCore core, PluginConfig config, TagManager manager)
     {
         _core = core;
@@ -30,7 +37,7 @@ public class TagService
 
     // ============================== SCOREBOARD ==============================
 
-    public void ApplyScoreboard(IPlayer? player)
+    public void ApplyScoreboard(IPlayer? player, bool force = false)
     {
         if (!_config.Settings.EnableScoreboardTag) return;
         if (!ShouldHandle(player)) return;
@@ -50,6 +57,13 @@ public class TagService
             // Etiket bossa oyuncunun kendi Steam grup clan tag'ini koru.
             if (string.IsNullOrEmpty(target)) target = _originalClan[slot];
 
+            // Eger oyuncuya zaten bu etiket uygulandiysa ve zorlama (force) yoksa,
+            // ag selini (network flood), sunucu lagini ve client-server clan tag ping-pong dongusunu onlemek icin cik!
+            if (!force && _appliedClan.TryGetValue(slot, out var applied) && string.Equals(applied, target, StringComparison.Ordinal))
+                return;
+
+            _appliedClan[slot] = target;
+
             if (!string.Equals(current, target, StringComparison.Ordinal))
             {
                 controller.Clan = target;
@@ -62,10 +76,10 @@ public class TagService
         }
     }
 
-    public void ApplyScoreboardAll()
+    public void ApplyScoreboardAll(bool force = false)
     {
         foreach (var p in _core.PlayerManager.GetAllPlayers())
-            ApplyScoreboard(p);
+            ApplyScoreboard(p, force);
     }
 
     public string BuildScoreboardText(IPlayer? player, ResolvedTag tag)
@@ -73,16 +87,44 @@ public class TagService
         if (!tag.Enabled) return string.Empty;
         var values = PlaceholderHelper.BuildPlayerValues(player, tag);
         var tagText = ColorHelper.StripAll(PlaceholderHelper.Apply(tag.ScoreboardTag, values));
+
+        // Skorboard clan tag'inde otomatik parantez olusmasini onle ([VIP] -> VIP, (VIP) -> VIP)
+        tagText = StripOuterBrackets(tagText);
         values["SCOREBOARD_TAG"] = tagText;
+
         var formatted = ColorHelper.StripAll(PlaceholderHelper.Apply(tag.ScoreboardFormat, values)).Trim();
+        formatted = StripOuterBrackets(formatted);
+
+        // CS2 Panorama Scoreboard yerelleştirme (localization) düzeltmesi:
+        // Eğer clan tag metni '#' ile başlıyorsa (örn: "#{PLAYERID}" -> "#1"),
+        // CS2 Panorama motoru bunu yerelleştirme anahtarı sanarak baştaki '#' işaretini siler!
+        // Başına görünmez sıfır genişlikli boşluk (\u200B) ekleyerek '#' işaretinin
+        // skorboardda tam olarak görünmesini sağlıyoruz.
+        if (formatted.StartsWith('#'))
+            formatted = "\u200B" + formatted;
+
         return TruncateUtf8(formatted, _config.Settings.ScoreboardMaxLength, 31);
+    }
+
+    public static string StripOuterBrackets(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return string.Empty;
+        var t = s.Trim();
+        while ((t.StartsWith('[') && t.EndsWith(']')) || (t.StartsWith('(') && t.EndsWith(')')))
+        {
+            if (t.Length <= 2) return string.Empty;
+            t = t[1..^1].Trim();
+        }
+        return t;
     }
 
     /// <summary>Eklentinin degistirdigi clan tag'i eski haline getirir (unload / ozellik kapatilinca).</summary>
     public void RestoreScoreboard(IPlayer? player)
     {
         if (!PlayerHelper.IsUsable(player)) return;
-        if (!_originalClan.TryGetValue(player!.Slot, out var original)) return;
+        var slot = player!.Slot;
+        _appliedClan.Remove(slot);
+        if (!_originalClan.TryGetValue(slot, out var original)) return;
         var controller = PlayerHelper.GetController(player);
         if (controller == null) return;
         try
@@ -102,12 +144,16 @@ public class TagService
     public void OnPlayerDisconnected(int slot)
     {
         _originalClan.Remove(slot);
+        _appliedClan.Remove(slot);
+        _lastChatTime.Remove(slot);
         _manager.Invalidate(slot);
     }
 
     public void OnMapChanged()
     {
         _originalClan.Clear();
+        _appliedClan.Clear();
+        _lastChatTime.Clear();
         _manager.InvalidateAll();
     }
 
@@ -130,17 +176,29 @@ public class TagService
         if (message.Length == 0)
             return _config.Chat.BlockEmptyMessages ? HookResult.CancelOriginal : HookResult.Continue;
 
-        // Sadece config'te ozellikle gizlenmesi (sessiz kalmasi) istenen on ekler varsa sohbette gosterme,
-        // ancak CancelOriginal dondur ki ne etiketsiz ham CS2 mesaji ciksin ne de komutlar engellensin.
+        // Sessiz komutlar (/ ile baslayanlar) sohbette asla gorunmemeli; sessizce motora gecmelidir.
+        if (message.StartsWith('/'))
+            return HookResult.CancelOriginal;
+
+        // Sadece config'te ozellikle gizlenmesi (sessiz kalmasi) istenen on ekler varsa sohbette gosterme
         foreach (var prefix in _config.Chat.IgnorePrefixes)
             if (!string.IsNullOrEmpty(prefix) && message.StartsWith(prefix, StringComparison.Ordinal))
                 return HookResult.CancelOriginal;
+
+        // Chat flood / spam korumasi: reliable buffer overflow ve istemci kicklenmelerini engeller
+        var now = Environment.TickCount64;
+        if (_lastChatTime.TryGetValue(playerId, out var lastTime) && (now - lastTime) < ChatCooldownMs)
+        {
+            return HookResult.CancelOriginal;
+        }
+        _lastChatTime[playerId] = now;
 
         try
         {
             var tag = _manager.Resolve(sender);
             if (!tag.Enabled) return HookResult.Continue;
 
+            // Komut yazarken de (!ws, !tagmenu vb.) etiket gorunmeye devam eder.
             var final = BuildChatLine(sender!, tag, message, teamOnly, out var senderTeam, out var senderAlive);
             if (string.IsNullOrWhiteSpace(final)) return HookResult.Continue;
 
@@ -150,14 +208,6 @@ public class TagService
                 if (teamOnly && PlayerHelper.GetTeam(r) != senderTeam) continue;
                 if (_config.Chat.DeadTalkOnlyToDead && !senderAlive && PlayerHelper.IsAlive(r)) continue;
                 r.SendChat(final);
-            }
-
-            if (_config.Chat.LogToConsole)
-            {
-                var sid = PlayerHelper.GetSteamId64(sender);
-                _core.Logger.LogInformation("[Chat]{Team} {Name} ({SteamId}): {Message}",
-                    teamOnly ? $"[{senderTeam}]" : string.Empty,
-                    PlayerHelper.GetName(sender), sid == 0 ? "-" : SteamIdHelper.ToSteam2(sid), message);
             }
 
             // Orijinal etiketsiz CS2 mesajini iptal et; SwiftlyS2 komut sistemi ve diger eklentilerin
@@ -182,23 +232,34 @@ public class TagService
         var safeName = values["NAME"];
         var safeMessage = ColorHelper.StripControlChars(rawMessage);
 
-        // Etiket metni (placeholder + renk)
+        // Etiket metni (placeholder + cerceve/sembol + renk)
         var rawTagText = ColorHelper.StripControlChars(PlaceholderHelper.Apply(tag.ChatTag, values)).Trim();
+        if (rawTagText.Length > 0 && !string.IsNullOrWhiteSpace(tag.Frame) && PlaceholderHelper.IsFrame(tag.Frame))
+        {
+            rawTagText = PlaceholderHelper.ApplyFrame(rawTagText, tag.Frame);
+        }
         bool protectTagLiteral = ColorHelper.IsSingleBracketTag(rawTagText);
         var chatTagBody = protectTagLiteral ? "{RAW_CHAT_TAG}" : ColorHelper.NormalizeTags(rawTagText, senderTeam);
 
         var chatTag = chatTagBody;
         if (rawTagText.Length > 0 && tag.UseTagColor)
         {
-            var colorTag = ColorHelper.ToChatTag(tag.ChatTagColor, senderTeam);
-            if (colorTag.Length > 0) chatTag = $"{colorTag}{chatTagBody}[default]";
+            if (ColorHelper.IsGradient(tag.ChatTagColor))
+            {
+                chatTag = ColorHelper.ApplyGradient(rawTagText, tag.ChatTagColor!);
+            }
+            else
+            {
+                var colorTag = ColorHelper.ToChatTag(tag.ChatTagColor, senderTeam);
+                if (colorTag.Length > 0) chatTag = $"{colorTag}{chatTagBody}[default]";
+            }
         }
 
         // 1. Adim: Renk kodlarini iceren sablon placeholder'larini yerlestir;
         // oyuncu ismi, mesaji ve tekli etiket metnini Helper.Colored sonrasina birak.
         values["CHAT_TAG"] = chatTag;
-        values["NAME_COLOR"] = ColorHelper.ToChatTag(tag.NameColor, senderTeam);
-        values["MESSAGE_COLOR"] = ColorHelper.ToChatTag(tag.MessageColor, senderTeam);
+        values["NAME_COLOR"] = ColorHelper.IsGradient(tag.NameColor) ? string.Empty : ColorHelper.ToChatTag(tag.NameColor, senderTeam);
+        values["MESSAGE_COLOR"] = ColorHelper.IsGradient(tag.MessageColor) ? string.Empty : ColorHelper.ToChatTag(tag.MessageColor, senderTeam);
         values["NAME"] = "{NAME}";
         values["MESSAGE"] = "{MESSAGE}";
         values["DEAD"] = !senderAlive && senderTeam is "T" or "CT" ? _config.Chat.DeadPrefix : string.Empty;
@@ -217,14 +278,84 @@ public class TagService
         if (coloredLine.Length > 0 && coloredLine[0] != ' ' && coloredLine.Any(ch => ch < 0x20))
             coloredLine = " " + coloredLine;
 
-        // 2. Adim: Oyuncu kaynakli metinleri tek geciste yerlestir (özel karakterler korunur, renk/placeholder enjeksiyonu engellenir).
+        // 2. Adim: Oyuncu kaynakli metinleri tek geciste yerlestir.
+        // Gradyan efekt secilmisse, Helper.Colored ile ikili CS2 renk baytlarina cevrilmis sekilde yerlestir.
+        var formattedName = ColorHelper.IsGradient(tag.NameColor)
+            ? Helper.Colored(ColorHelper.ApplyGradient(safeName, tag.NameColor!))
+            : safeName;
+
+        var formattedMessage = ColorHelper.IsGradient(tag.MessageColor)
+            ? Helper.Colored(ColorHelper.ApplyGradient(safeMessage, tag.MessageColor!))
+            : safeMessage;
+
         var literalValues = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["RAW_CHAT_TAG"] = rawTagText,
-            ["NAME"] = safeName,
-            ["MESSAGE"] = safeMessage
+            ["NAME"] = formattedName,
+            ["MESSAGE"] = formattedMessage
         };
         return PlaceholderHelper.Apply(coloredLine, literalValues);
+    }
+
+    /// <summary>
+    /// Verilen oyuncu veya etiket tanımı için örnek chat satırı önizlemesi üretir.
+    /// stripped=true ise renk ve kontrol kodları temizlenmiş düz metin döner (Panorama HUD uyumlu).
+    /// </summary>
+    public string BuildPreviewChatLine(IPlayer? player, TagEntry? entry = null, string sample = "Merhaba Dünya!", bool stripped = false)
+    {
+        var resolved = entry != null ? _manager.BuildResolvedTag(entry) : _manager.Resolve(player);
+        if (PlayerHelper.IsUsable(player))
+        {
+            var line = BuildChatLine(player!, resolved, sample, false, out _, out _);
+            return stripped ? ColorHelper.StripAll(line).Trim() : line;
+        }
+
+        var tagText = resolved.ChatTag ?? string.Empty;
+        if (tagText.Length > 0 && !string.IsNullOrWhiteSpace(resolved.Frame) && PlaceholderHelper.IsFrame(resolved.Frame))
+        {
+            tagText = PlaceholderHelper.ApplyFrame(tagText, resolved.Frame);
+        }
+        var name = "Oyuncu";
+        if (stripped)
+        {
+            return string.IsNullOrWhiteSpace(tagText)
+                ? $"{name}: {sample}"
+                : $"{tagText} {name}: {sample}";
+        }
+
+        var tagColor = ColorHelper.ToChatTag(resolved.ChatTagColor, "CT");
+        var nameColor = ColorHelper.ToChatTag(resolved.NameColor, "CT");
+        var msgColor = ColorHelper.ToChatTag(resolved.MessageColor, "CT");
+
+        var formattedTag = ColorHelper.IsGradient(resolved.ChatTagColor)
+            ? ColorHelper.ApplyGradient(tagText, resolved.ChatTagColor!)
+            : $"{tagColor}{tagText}[default]";
+
+        var formattedName = ColorHelper.IsGradient(resolved.NameColor)
+            ? ColorHelper.ApplyGradient(name, resolved.NameColor!)
+            : $"{nameColor}{name}[default]";
+
+        var formattedMsg = ColorHelper.IsGradient(resolved.MessageColor)
+            ? ColorHelper.ApplyGradient(sample, resolved.MessageColor!)
+            : $"{msgColor}{sample}[default]";
+
+        return Helper.Colored($"{formattedTag} {formattedName}: {formattedMsg}");
+    }
+
+    /// <summary>Verilen oyuncu veya etiket tanımı için Scoreboard (Clan Tag) önizlemesi üretir.</summary>
+    public string BuildPreviewScoreboard(IPlayer? player, TagEntry? entry = null)
+    {
+        var resolved = entry != null ? _manager.BuildResolvedTag(entry) : _manager.Resolve(player);
+        return BuildScoreboardText(player, resolved);
+    }
+
+    /// <summary>Oyuncuya kendi etiketinin ya da verilen etiketin gerçek renkli chat önizleme mesajını basar.</summary>
+    public void SendTestChat(IPlayer player, TagEntry? entry = null, string sample = "Test mesajı: TagSystem canlı önizleme!")
+    {
+        if (!PlayerHelper.IsUsable(player)) return;
+        var resolved = entry != null ? _manager.BuildResolvedTag(entry) : _manager.Resolve(player);
+        var line = BuildChatLine(player, resolved, sample, false, out _, out _);
+        player.SendChat(line);
     }
 
     // ================================ ORTAK =================================

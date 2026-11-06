@@ -21,14 +21,21 @@ public sealed class TagAdminMenu
 {
     private const int RowsPerPage = 6;
     private const int HtmlDurationMs = 2000;
-    private const float ResendSeconds = 0.25f;
+    private const float ResendSeconds = 0.5f;
 
     private static readonly string[] ColorCycle =
     {
         "gold", "lightred", "red", "darkred", "lightblue", "blue", "darkblue",
         "lime", "green", "olive", "yellow", "lightyellow", "orange",
-        "purple", "lightpurple", "magenta", "grey", "silver", "white", "teamcolor", "default"
+        "purple", "lightpurple", "magenta", "grey", "silver", "white", "bluegrey",
+        "teamcolor", "rainbow", "fire", "ice", "neon", "sunset", "toxic",
+        "police", "blood", "royal", "matrix", "pastel",
+        "galaxy", "cyberpunk", "lava", "aurora", "ghost", "nature", "candy", "goldrush",
+        "redblue", "pinkblue", "goldblack", "greenyellow", "blackwhite", "redwhite",
+        "default"
     };
+
+    private static readonly string[] FrameCycle = PlaceholderHelper.AvailableFrames.Select(f => f.Key).ToArray();
 
     private static readonly string[][] TeamPresets =
     {
@@ -467,7 +474,7 @@ public sealed class TagAdminMenu
                         RawSteamId = steam2,
                         DisplayName = text,
                         ChatTag = text,
-                        ScoreboardTag = text,
+                        ScoreboardTag = TagService.StripOuterBrackets(text),
                         ChatTagColor = "gold",
                         NameColor = "gold",
                         Priority = 1000,
@@ -589,7 +596,7 @@ public sealed class TagAdminMenu
                 DisplayName = id.ToUpperInvariant(),
                 Permissions = new List<string> { id, $"tagsystem.{id}" },
                 ChatTag = tagText,
-                ScoreboardTag = tagText,
+                ScoreboardTag = id.ToUpperInvariant(),
                 ChatTagColor = "gold",
                 NameColor = "gold",
                 Priority = 50,
@@ -626,10 +633,12 @@ public sealed class TagAdminMenu
             new("📋 Scoreboard / Clan Tag (Yazmak için E)", string.IsNullOrEmpty(entry.ScoreboardTag) ? "(boş)" : entry.ScoreboardTag, Style: RowStyle.Accent,
                 OnSelect: a => PromptInput(a, "Yeni Scoreboard Etiketini yazın (boş bırakmak için - yazın):", (adm, val) =>
                 {
-                    entry.ScoreboardTag = val == "-" ? "" : val;
+                    entry.ScoreboardTag = val == "-" ? "" : TagService.StripOuterBrackets(val);
                     SaveAndApply();
                     _service.Reply(adm, $"Scoreboard etiketi [lime]{entry.ScoreboardTag}[default] olarak güncellendi.");
                 })),
+
+            BuildFrameRow("👑 Çerçeve / Sembol", () => entry.Frame, v => { entry.Frame = v; SaveAndApply(); }),
 
             BuildColorRow("🎨 Etiket Rengi", () => entry.ChatTagColor ?? "gold", v => { entry.ChatTagColor = v; SaveAndApply(); }),
             BuildColorRow("🎨 İsim Rengi", () => entry.NameColor ?? "teamcolor", v => { entry.NameColor = v; SaveAndApply(); }),
@@ -731,6 +740,21 @@ public sealed class TagAdminMenu
             {
                 int next = ((idx + dir) % ColorCycle.Length + ColorCycle.Length) % ColorCycle.Length;
                 set(ColorCycle[next]);
+            });
+    }
+
+    private static Row BuildFrameRow(string label, Func<string?> get, Action<string?> set)
+    {
+        var cur = get() ?? "none";
+        int idx = Array.FindIndex(FrameCycle, f => f.Equals(cur, StringComparison.OrdinalIgnoreCase));
+        if (idx < 0) idx = 0;
+
+        var display = PlaceholderHelper.AvailableFrames[idx].Name;
+        return new Row(label, display, Arrows: true, Style: RowStyle.Accent,
+            OnAdjust: (_, dir) =>
+            {
+                int next = ((idx + dir) % FrameCycle.Length + FrameCycle.Length) % FrameCycle.Length;
+                set(FrameCycle[next] == "none" ? null : FrameCycle[next]);
             });
     }
 

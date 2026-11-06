@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using PanoramaHud.Contract;
 using SwiftlyS2.Shared;
 using SwiftlyS2.Shared.Commands;
 using SwiftlyS2.Shared.Events;
@@ -17,7 +18,7 @@ namespace TagSystem;
     Id = "tagsystem",
     Version = "2.1.0",
     Name = "TagSystem",
-    Author = "surfevo",
+    Author = "CanDaysa, Devrim & SoulSnatcher",
     Description = "Yetki, grup ve oyuncu bazli otomatik Scoreboard (Clan Tag) ve Chat etiket sistemi."
 )]
 public class Plugin(ISwiftlyCore core) : BasePlugin(core)
@@ -27,9 +28,12 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
     private TagManager? _tagManager;
     private TagService? _tagService;
     private TagAdminMenu? _adminMenu;
+    private IPanoramaHudApi? _hudApi;
+    private IHudScope? _hudScope;
+    private TagPanoramaMenu? _panoramaMenu;
 
-    private readonly List<Guid> _commandGuids = new();
-    private readonly List<Guid> _gameEventGuids = new();
+    private readonly List<Guid> _commandGuids = [];
+    private readonly List<Guid> _gameEventGuids = [];
     private Guid _chatHookGuid;
     private CancellationTokenSource? _refreshTimer;
     private readonly Dictionary<int, long> _lastCmdTime = new();
@@ -58,9 +62,15 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
         RegisterEvents();
         StartRefreshTimer();
 
+        if (_hudScope != null && _hudApi != null && _panoramaMenu == null)
+        {
+            _panoramaMenu = new TagPanoramaMenu(Core, _hudScope, _hudApi, _configLoader, _config, _tagManager, _tagService);
+            _panoramaMenu.BuildMenus();
+        }
+
         if (hotReload)
         {
-            Core.Scheduler.NextTick(() => _tagService.ApplyScoreboardAll());
+            Core.Scheduler.NextTick(() => _tagService.ApplyScoreboardAll(force: true));
         }
 
         Core.Logger.LogInformation(
@@ -68,9 +78,31 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
             _config.Groups.Count, _config.Players.Count, _config.Commands.MenuCommand);
     }
 
+    public override void UseSharedInterface(IInterfaceManager interfaceManager)
+    {
+        if (!interfaceManager.HasSharedInterface("PanoramaHud")) return;
+        try
+        {
+            _hudApi = interfaceManager.GetSharedInterface<IPanoramaHudApi>("PanoramaHud");
+            _hudScope = _hudApi.CreateScope("tagsystem");
+            if (_tagManager != null && _tagService != null && _configLoader != null && _panoramaMenu == null)
+            {
+                _panoramaMenu = new TagPanoramaMenu(Core, _hudScope, _hudApi, _configLoader, _config, _tagManager, _tagService);
+                _panoramaMenu.BuildMenus();
+            }
+            Core.Logger.LogInformation("[TagSystem] Panorama HUD arayüzü bağlandı.");
+        }
+        catch (Exception ex)
+        {
+            Core.Logger.LogError(ex, "[TagSystem] Panorama HUD başlatılırken hata oluştu.");
+        }
+    }
+
     public override void Unload()
     {
         StopRefreshTimer();
+        _panoramaMenu?.Dispose();
+        _hudScope?.Dispose();
         _adminMenu?.CloseAll();
         UnregisterEvents();
         UnregisterCommands();
@@ -108,7 +140,8 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
         _tagManager.UpdateConfig(_config);
         _tagService.UpdateConfig(_config);
         _adminMenu?.UpdateConfig(_config);
-        _tagService.ApplyScoreboardAll();
+        _panoramaMenu?.UpdateConfig(_config);
+        _tagService.ApplyScoreboardAll(force: true);
     }
 
     // ============================== EVENTS & TIMERS ==============================
@@ -118,7 +151,6 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
         _chatHookGuid = Core.Command.HookClientChat(OnClientChat);
 
         Core.Event.OnTick += OnTick;
-        Core.Event.OnClientKeyStateChanged += OnClientKeyStateChanged;
         Core.Event.OnClientPutInServer += OnClientPutInServer;
         Core.Event.OnClientSteamAuthorize += OnClientSteamAuthorize;
         Core.Event.OnClientDisconnected += OnClientDisconnected;
@@ -137,7 +169,6 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
         }
 
         Core.Event.OnTick -= OnTick;
-        Core.Event.OnClientKeyStateChanged -= OnClientKeyStateChanged;
         Core.Event.OnClientPutInServer -= OnClientPutInServer;
         Core.Event.OnClientSteamAuthorize -= OnClientSteamAuthorize;
         Core.Event.OnClientDisconnected -= OnClientDisconnected;
@@ -155,7 +186,7 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
         {
             _refreshTimer = Core.Scheduler.RepeatBySeconds(_config.Settings.ScoreboardRefreshSeconds, () =>
             {
-                _tagService?.ApplyScoreboardAll();
+                _tagService?.ApplyScoreboardAll(force: false);
             });
         }
     }
@@ -166,32 +197,33 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
         _refreshTimer = null;
     }
 
-    private void OnTick() => _adminMenu?.OnTick();
-
-    private void OnClientKeyStateChanged(IOnClientKeyStateChangedEvent e)
+    private void OnTick()
     {
-        if (!e.Pressed || _adminMenu == null || !_adminMenu.IsMenuOpen(e.PlayerId)) return;
-        var player = Core.PlayerManager.GetPlayer(e.PlayerId);
-        if (PlayerHelper.IsUsable(player))
-            _adminMenu.OnKeyPressed(player!, e.Key);
+        _adminMenu?.OnTick();
+        _panoramaMenu?.OnTick();
     }
 
     private HookResult OnClientChat(int playerId, string text, bool teamOnly)
     {
+        if (_panoramaMenu != null && _panoramaMenu.TryConsumeChatInput(playerId, text))
+            return HookResult.CancelOriginal;
+
         if (_adminMenu != null && _adminMenu.TryConsumeChatInput(playerId, text))
             return HookResult.CancelOriginal;
 
-        // Sessiz komutsa (/tagmenu vb.) sohbette gostermeden calistir ve orijinali iptal et.
+        // Sessiz TagSystem komutu ise (/tagmenu vb.): sohbette gostermeden calistir ve orijinali iptal et.
         if (IsSilentTagSystemCommand(text) && TryHandleFallbackChatCommand(playerId, text))
             return HookResult.CancelOriginal;
 
+        // Normal sohbet veya acik komutlar (!ws, !tagmenu vb.):
+        // Komut yazarken de etiket gorunmeye devam eder (ornegin: "[VIP] Devrim: !ws").
         var result = _tagService != null
-            ? _tagService.HandleChat(playerId, text, teamOnly)
+            ? _tagService.HandleChat(playerId, text ?? string.Empty, teamOnly)
             : HookResult.Continue;
 
-        // Acik komutsa (!tagmenu, !tagcheck vb.) once oyuncu mesaji etiketli olarak basilir,
-        // ardindan komut calistirilir ve yaniti alt satirda gorunur.
-        if (TryHandleFallbackChatCommand(playerId, text))
+        // Acik TagSystem komutu ise (!tagmenu, !tagcheck vb.):
+        // Once oyuncu mesaji etiketli basilir, ardindan komut isletilir.
+        if (TryHandleFallbackChatCommand(playerId, text ?? string.Empty))
             return HookResult.CancelOriginal;
 
         return result;
@@ -224,6 +256,7 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
     private void OnClientDisconnected(IOnClientDisconnectedEvent e)
     {
         _lastCmdTime.Remove(e.PlayerId);
+        _panoramaMenu?.OnPlayerDisconnected(e.PlayerId);
         _adminMenu?.OnPlayerDisconnected(e.PlayerId);
         _tagService?.OnPlayerDisconnected(e.PlayerId);
     }
@@ -231,6 +264,7 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
     private void OnMapLoad(IOnMapLoadEvent e)
     {
         _lastCmdTime.Clear();
+        _panoramaMenu?.OnMapLoad();
         _adminMenu?.CloseAll();
         _tagService?.OnMapChanged();
     }
@@ -465,6 +499,11 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
     private void ExecuteMenuCommand(IPlayer admin)
     {
         if (!CheckCallerPermission(admin)) return;
+        if (_panoramaMenu != null && _panoramaMenu.IsAvailable)
+        {
+            _panoramaMenu.Open(admin);
+            return;
+        }
         _adminMenu?.Toggle(admin);
     }
 
@@ -540,7 +579,7 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
 
         existing.DisplayName = targetName;
         existing.ChatTag = tagText;
-        existing.ScoreboardTag = tagText;
+        existing.ScoreboardTag = TagService.StripOuterBrackets(tagText);
         existing.ChatTagColor = tagColor;
         existing.NameColor = nameColor;
         existing.Priority = priority;
@@ -629,7 +668,7 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
         if (!string.IsNullOrWhiteSpace(perm) && perm != "-" && !group.Permissions.Contains(perm, StringComparer.OrdinalIgnoreCase))
             group.Permissions.Add(perm);
         group.ChatTag = tagText;
-        group.ScoreboardTag = tagText;
+        group.ScoreboardTag = TagService.StripOuterBrackets(tagText);
         group.ChatTagColor = color;
         group.NameColor = color;
         group.Priority = priority;
@@ -656,12 +695,13 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
             _tagManager.UpdateConfig(_config);
             _tagService.UpdateConfig(_config);
             _adminMenu?.UpdateConfig(_config);
+            _panoramaMenu?.UpdateConfig(_config);
 
             RegisterCommands();
             StartRefreshTimer();
 
             if (_config.Settings.EnableScoreboardTag)
-                _tagService.ApplyScoreboardAll();
+                _tagService.ApplyScoreboardAll(force: true);
             else if (wasScoreboardEnabled)
                 _tagService.RestoreScoreboardAll();
 

@@ -7,6 +7,7 @@ public sealed class ResolvedTag
     public required string Label { get; init; }
     public string ChatTag { get; init; } = string.Empty;
     public string ScoreboardTag { get; init; } = string.Empty;
+    public string? Frame { get; init; }
     public string ChatTagColor { get; init; } = string.Empty;
     public string NameColor { get; init; } = string.Empty;
     public string MessageColor { get; init; } = string.Empty;

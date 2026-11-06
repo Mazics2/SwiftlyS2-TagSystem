@@ -15,6 +15,9 @@ public class TagEntry
     public string? ChatTag { get; set; }
     public string? ScoreboardTag { get; set; }
 
+    /// <summary>Opsiyonel estetik cerceve/sembol (crown, flame, wings, star, diamond vb.).</summary>
+    public string? Frame { get; set; }
+
     // Renklendirme (isim: "gold", etiket: "[gold]", hex: "#FFD700" -> en yakin chat rengi, "teamcolor")
     public string? ChatTagColor { get; set; }
     public string? NameColor { get; set; }
