@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using MenuApi.API;
 using Microsoft.Extensions.Logging;
 using SwiftlyS2.Shared;
 using SwiftlyS2.Shared.Events;
@@ -53,6 +54,8 @@ public sealed class TagAdminMenu
     private readonly TagService _service;
     private PluginConfig _config;
 
+    public IMenuApi? MenuApi { get; set; }
+
     private readonly Dictionary<int, Session> _sessions = new();
     private readonly Dictionary<int, (string Prompt, Action<IPlayer, string> Callback)> _pendingInput = new();
     private readonly Dictionary<int, (string Html, float Time)> _lastHtml = new();
@@ -99,6 +102,8 @@ public sealed class TagAdminMenu
             Cursor = c;
             return true;
         }
+
+        public bool CanGoBack => _history.Count > 0;
     }
 
     public TagAdminMenu(ISwiftlyCore core, ConfigLoader loader, PluginConfig config, TagManager manager, TagService service)
@@ -112,11 +117,30 @@ public sealed class TagAdminMenu
 
     public void UpdateConfig(PluginConfig config) => _config = config;
 
-    public bool IsMenuOpen(int slot) => _sessions.ContainsKey(slot);
+    public bool IsMenuOpen(int slot)
+    {
+        if (_sessions.ContainsKey(slot)) return true;
+        if (MenuApi != null)
+        {
+            var p = _core.PlayerManager.GetPlayer(slot);
+            if (PlayerHelper.IsUsable(p) && MenuApi.HasActiveMenu(p!))
+            {
+                var active = MenuApi.GetActiveMenu(p!);
+                if (active != null && active.Id.StartsWith("ts.", StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+        }
+        return false;
+    }
     public bool IsWaitingChatInput(int slot) => _pendingInput.ContainsKey(slot);
 
     public void Toggle(IPlayer admin)
     {
+        if (MenuApi != null)
+        {
+            Open(admin);
+            return;
+        }
         if (IsMenuOpen(admin.Slot)) Close(admin);
         else Open(admin);
     }
@@ -128,13 +152,102 @@ public sealed class TagAdminMenu
             LastButtons = admin.PressedButtons,
             LastKeyTime = _core.Engine.GlobalVars.CurrentTime
         };
+
+        if (MenuApi != null)
+        {
+            RenderMenuApiPage(admin, 0);
+            return;
+        }
+
         SetFrozen(admin, true);
         _service.Reply(admin, "Yönetim menüsü açıldı! [lime]W/S[default]: Gezin | [lime]A/D[default]: Değiştir | [lime]E[default]: Seç | [lime]R[default]: Geri/Kapat");
+    }
+
+    private void RenderMenuApiPage(IPlayer admin, int pageIndex = 0)
+    {
+        if (MenuApi == null) return;
+        if (!_sessions.TryGetValue(admin.Slot, out var session)) return;
+
+        var page = session.Current(admin);
+        var builder = MenuApi.CreateBuilder($"ts.admin.{admin.Slot}", $"✦ {page.Title} ✦")
+            .SetTheme(MenuTheme.Blue)
+            .SetItemsPerPage(7)
+            .SetTimeout(TimeSpan.FromSeconds(60))
+            .EnableSounds(true)
+            .EnableSlotSelection(true)
+            .EnableChatSelection(true);
+
+        if (!string.IsNullOrWhiteSpace(page.Subtitle))
+        {
+            builder.SetSubtitle(page.Subtitle);
+        }
+
+        foreach (var row in page.Rows)
+        {
+            var r = row;
+            string valStr = string.IsNullOrWhiteSpace(r.Value) ? "" : $" [{r.Value}]";
+            string text = $"{r.Label}{valStr}";
+            string color = r.Style switch
+            {
+                RowStyle.Danger => "#F87171",
+                RowStyle.Accent => "#38BDF8",
+                RowStyle.On => "#4ADE80",
+                RowStyle.Off => "#F87171",
+                RowStyle.Muted => "#94A3B8",
+                _ => "#E2E8F0"
+            };
+
+            bool isInteractive = r.OnSelect != null || r.OnAdjust != null;
+            if (!isInteractive)
+            {
+                builder.AddText(text, color);
+                continue;
+            }
+
+            builder.AddItem(text, ctx =>
+            {
+                if (!_sessions.ContainsKey(ctx.Player.Slot)) return;
+                if (r.OnSelect != null)
+                {
+                    r.OnSelect(ctx.Player);
+                }
+                else
+                {
+                    r.OnAdjust?.Invoke(ctx.Player, +1);
+                }
+
+                if (_sessions.ContainsKey(ctx.Player.Slot) && !_pendingInput.ContainsKey(ctx.Player.Slot))
+                {
+                    RenderMenuApiPage(ctx.Player, r.OnSelect != null ? 0 : ctx.PageIndex);
+                }
+            }, color, enabled: r.Style != RowStyle.Muted, closeOnSelect: false);
+        }
+
+        if (session.CanGoBack)
+        {
+            builder.AddItem("⬅️ Geri Dön", ctx =>
+            {
+                if (_sessions.TryGetValue(ctx.Player.Slot, out var s))
+                {
+                    _pendingInput.Remove(ctx.Player.Slot);
+                    if (s.Back())
+                        RenderMenuApiPage(ctx.Player, 0);
+                    else
+                        Close(ctx.Player);
+                }
+            }, "#FFB000", enabled: true, closeOnSelect: false);
+        }
+
+        builder.Open(admin, pageIndex);
     }
 
     public void Close(IPlayer admin)
     {
         _pendingInput.Remove(admin.Slot);
+        if (MenuApi != null && MenuApi.HasActiveMenu(admin))
+        {
+            MenuApi.CloseMenu(admin);
+        }
         if (_sessions.Remove(admin.Slot))
         {
             SetFrozen(admin, false);
@@ -184,16 +297,24 @@ public sealed class TagAdminMenu
             trimmed.Equals("cancel", StringComparison.OrdinalIgnoreCase))
         {
             _service.Reply(admin, "[red]Giriş iptal edildi.[default]");
+            if (MenuApi != null && _sessions.ContainsKey(admin!.Slot))
+                RenderMenuApiPage(admin, 0);
             return true;
         }
 
         pending.Callback(admin!, trimmed);
+        if (MenuApi != null && _sessions.ContainsKey(admin!.Slot))
+            RenderMenuApiPage(admin, 0);
         return true;
     }
 
     private void PromptInput(IPlayer admin, string prompt, Action<IPlayer, string> callback)
     {
         _pendingInput[admin.Slot] = (prompt, callback);
+        if (MenuApi != null && MenuApi.HasActiveMenu(admin))
+        {
+            MenuApi.CloseMenu(admin);
+        }
         _service.Reply(admin, $"[gold]{prompt}[default] (İptal için sohbete [red]iptal[default] yazın)");
     }
 
@@ -201,6 +322,7 @@ public sealed class TagAdminMenu
 
     public void OnTick()
     {
+        if (MenuApi != null) return;
         if (_sessions.Count == 0) return;
 
         foreach (var kv in _sessions.ToList())

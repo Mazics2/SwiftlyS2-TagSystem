@@ -1,0 +1,33 @@
+================================================================================
+                SWIFTLYS2-TAGSYSTEM - SKOR TABLOSU & SOHBET TAGLARI
+                           YAPILMASI GEREKENLER & ENTEGRASYON
+================================================================================
+Eklenti: SwiftlyS2-TagSystem (v1.0.0)
+Repo: https://github.com/Mazics2/SwiftlyS2-TagSystem.git
+
+--------------------------------------------------------------------------------
+1. DURUM & ENTEGRASYON
+--------------------------------------------------------------------------------
+[✓] 1. Skor Tablosu & Sohbet Ünvanları:
+    - TAB skor tablosunda klan/grup etiketi (Scoreboard Tag) ve sohbette renkli prefix (Chat Tag).
+    - VIP, Admin, Kurucu, Lider, Oyuncu etiketleri.
+
+[✓] 2. MenuApi Entegrasyonu:
+    - SwiftlyS2-MenuApi arayüzüne "settings:tags" olarak bağlanır.
+    - Oyuncular `!tag` veya `!tags` yazarak kendilerine uygun ünvanı seçebilir.
+
+[✓] 3. Bağımlılık Uyumluluğu:
+    - Linux sunucu çökmesini önlemek için `PanoramaHud.Contract.dll` stübü mevcuttur.
+
+--------------------------------------------------------------------------------
+2. KOMUTLAR
+--------------------------------------------------------------------------------
+* `!tag` / `!tags` : Tag seçim menüsünü açar.
+* `sw_tag_reload` : Tag yapılandırma dosyasını yeniden yükler.
+
+--------------------------------------------------------------------------------
+3. ORTAĞIMIN YAPMASI GEREKENLER (TODO)
+--------------------------------------------------------------------------------
+1. `tagconfig.toml`:
+   - Sunucudaki VIP ve admin gruplarına ait tag renklerini ve metinlerini belirleyin.
+================================================================================

@@ -1,3 +1,4 @@
+using MenuApi.API;
 using Microsoft.Extensions.Logging;
 using PanoramaHud.Contract;
 using SwiftlyS2.Shared;
@@ -28,6 +29,7 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
     private TagManager? _tagManager;
     private TagService? _tagService;
     private TagAdminMenu? _adminMenu;
+    private IMenuApi? _menuApi;
     private IPanoramaHudApi? _hudApi;
     private IHudScope? _hudScope;
     private TagPanoramaMenu? _panoramaMenu;
@@ -56,7 +58,10 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
 
         _tagManager = new TagManager(Core, _config);
         _tagService = new TagService(Core, _config, _tagManager);
-        _adminMenu = new TagAdminMenu(Core, _configLoader, _config, _tagManager, _tagService);
+        _adminMenu = new TagAdminMenu(Core, _configLoader, _config, _tagManager, _tagService)
+        {
+            MenuApi = _menuApi
+        };
 
         RegisterCommands();
         RegisterEvents();
@@ -80,21 +85,26 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
 
     public override void UseSharedInterface(IInterfaceManager interfaceManager)
     {
-        if (!interfaceManager.HasSharedInterface("PanoramaHud")) return;
-        try
+        if (interfaceManager.HasSharedInterface("MenuApi"))
         {
-            _hudApi = interfaceManager.GetSharedInterface<IPanoramaHudApi>("PanoramaHud");
-            _hudScope = _hudApi.CreateScope("tagsystem");
-            if (_tagManager != null && _tagService != null && _configLoader != null && _panoramaMenu == null)
+            try
             {
-                _panoramaMenu = new TagPanoramaMenu(Core, _hudScope, _hudApi, _configLoader, _config, _tagManager, _tagService);
-                _panoramaMenu.BuildMenus();
+                _menuApi = interfaceManager.GetSharedInterface<IMenuApi>("MenuApi");
+                if (_adminMenu != null)
+                {
+                    _adminMenu.MenuApi = _menuApi;
+                }
+                Core.Logger.LogInformation("[TagSystem] SwiftlyS2-MenuApi arayüzü bağlandı.");
             }
-            Core.Logger.LogInformation("[TagSystem] Panorama HUD arayüzü bağlandı.");
+            catch (Exception ex)
+            {
+                Core.Logger.LogError(ex, "[TagSystem] SwiftlyS2-MenuApi bağlanırken hata oluştu.");
+            }
         }
-        catch (Exception ex)
+        else
         {
-            Core.Logger.LogError(ex, "[TagSystem] Panorama HUD başlatılırken hata oluştu.");
+            _menuApi = null;
+            if (_adminMenu != null) _adminMenu.MenuApi = null;
         }
     }
 
@@ -499,6 +509,11 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
     private void ExecuteMenuCommand(IPlayer admin)
     {
         if (!CheckCallerPermission(admin)) return;
+        if (_adminMenu != null && _adminMenu.MenuApi != null)
+        {
+            _adminMenu.Open(admin);
+            return;
+        }
         if (_panoramaMenu != null && _panoramaMenu.IsAvailable)
         {
             _panoramaMenu.Open(admin);
