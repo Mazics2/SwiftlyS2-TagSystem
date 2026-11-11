@@ -1,12 +1,9 @@
-using System.Net;
-using System.Text;
-using MenuApi.API;
+using System.Globalization;
 using Microsoft.Extensions.Logging;
 using SwiftlyS2.Shared;
-using SwiftlyS2.Shared.Events;
-using SwiftlyS2.Shared.Natives;
+using SwiftlyS2.Shared.Menu;
+using SwiftlyS2.Shared.Menu.Components;
 using SwiftlyS2.Shared.Players;
-using SwiftlyS2.Shared.SchemaDefinitions;
 using TagSystem.Config;
 using TagSystem.Models;
 using TagSystem.Utils;
@@ -14,39 +11,129 @@ using TagSystem.Utils;
 namespace TagSystem.Core;
 
 /// <summary>
-/// Adminler icin oyun ici gorsel (CenterHTML) etiket ve grup yonetim menusu (!tagmenu).
-/// W/S: Yukari/Asagi | A/D: Deger degistir | E: Sec | R: Geri/Kapat
-/// Metin girisi gerektiginde (etiket metni, yetki vb.) bir sonraki chat mesajini yakalar.
+/// Adminler icin SwiftlyS2 Core.Menu tabanli etiket ve grup yonetim menusu (!tagmenu).
+/// CustomHUD, CenterHTML ve Chat rendererlariyla tam uyumludur.
 /// </summary>
 public sealed class TagAdminMenu
 {
-    private const int RowsPerPage = 6;
-    private const int HtmlDurationMs = 2000;
-    private const float ResendSeconds = 0.5f;
+    private const string MenuTag = "tagsystem.menu";
 
-    private static readonly string[] ColorCycle =
+    public sealed record ColorOption(string Key, string TurkishName, string SwatchToken);
+    private sealed record FrameOption(string Key, string Name);
+
+    public static readonly ColorOption[] ColorPalette =
+    [
+        new("gold", "Altın (Gold)", "yellow"),
+        new("lightred", "Açık Kırmızı", "red"),
+        new("red", "Kırmızı", "red"),
+        new("darkred", "Koyu Kırmızı", "red"),
+        new("lightblue", "Açık Mavi", "cyan"),
+        new("blue", "Mavi", "blue"),
+        new("darkblue", "Koyu Mavi", "blue"),
+        new("lime", "Açık Yeşil (Lime)", "green"),
+        new("green", "Yeşil", "green"),
+        new("olive", "Zeytin Yeşili", "green"),
+        new("yellow", "Sarı", "yellow"),
+        new("lightyellow", "Açık Sarı", "yellow"),
+        new("orange", "Turuncu", "orange"),
+        new("purple", "Mor", "purple"),
+        new("lightpurple", "Açık Mor", "purple"),
+        new("magenta", "Magenta", "pink"),
+        new("grey", "Gri", "white"),
+        new("silver", "Gümüş", "white"),
+        new("white", "Beyaz", "white"),
+        new("bluegrey", "Mavi Gri", "cyan"),
+        new("teamcolor", "Takım Rengi", "team"),
+        // Özel Çok Renkli ve Efekt Renkleri
+        new("rainbow", "Gökkuşağı (Rainbow)", "random"),
+        new("fire", "Ateş (Fire)", "orange"),
+        new("ice", "Buz (Ice)", "cyan"),
+        new("neon", "Neon", "green"),
+        new("sunset", "Günbatımı (Sunset)", "orange"),
+        new("toxic", "Toksik (Toxic)", "green"),
+        new("police", "Polis (Police)", "blue"),
+        new("blood", "Kan (Blood)", "red"),
+        new("royal", "Kraliyet (Royal)", "yellow"),
+        new("matrix", "Matrix", "green"),
+        new("pastel", "Pastel", "pink"),
+        // Yeni Tematik Gradyanlar
+        new("galaxy", "Galaksi (Galaxy)", "purple"),
+        new("cyberpunk", "Siberpunk", "random"),
+        new("lava", "Lav (Lava)", "orange"),
+        new("aurora", "Kuzey Işıkları", "random"),
+        new("ghost", "Hayalet (Ghost)", "white"),
+        new("nature", "Doğa (Nature)", "green"),
+        new("candy", "Pamuk Şeker", "pink"),
+        new("goldrush", "Altın Avcısı", "yellow"),
+        // Çift Renkli (Dama) Desenler
+        new("redblue", "Dama: Kırmızı-Mavi", "red"),
+        new("pinkblue", "Dama: Pembe-Mavi", "pink"),
+        new("goldblack", "Dama: Altın-Gri", "yellow"),
+        new("greenyellow", "Dama: Yeşil-Sarı", "green"),
+        new("blackwhite", "Dama: Siyah-Beyaz", "black"),
+        new("redwhite", "Dama: Kırmızı-Beyaz", "red"),
+        new("default", "Varsayılan", "")
+    ];
+
+    private static readonly FrameOption[] FrameOptions = PlaceholderHelper.AvailableFrames
+        .Select(f => new FrameOption(f.Key, f.Name))
+        .ToArray();
+
+    private sealed class SwatchColorSelector : SelectorComponent<ColorOption>
     {
-        "gold", "lightred", "red", "darkred", "lightblue", "blue", "darkblue",
-        "lime", "green", "olive", "yellow", "lightyellow", "orange",
-        "purple", "lightpurple", "magenta", "grey", "silver", "white", "bluegrey",
-        "teamcolor", "rainbow", "fire", "ice", "neon", "sunset", "toxic",
-        "police", "blood", "royal", "matrix", "pastel",
-        "galaxy", "cyberpunk", "lava", "aurora", "ghost", "nature", "candy", "goldrush",
-        "redblue", "pinkblue", "goldblack", "greenyellow", "blackwhite", "redwhite",
-        "default"
-    };
+        public SwatchColorSelector(
+            string text,
+            IReadOnlyList<ColorOption> choices,
+            int defaultIndex,
+            Action<MenuValueChangedContext<ColorOption>> onItemChanged,
+            string? id = null)
+            : base(text, choices, defaultIndex, onItemChanged, id)
+        {
+            Formatter = item => item.TurkishName;
+        }
 
-    private static readonly string[] FrameCycle = PlaceholderHelper.AvailableFrames.Select(f => f.Key).ToArray();
+        public override MenuNode Render(IMenuComponentRenderContext context)
+        {
+            var node = base.Render(context);
+            if (Choices.Count == 0)
+                return node;
 
-    private static readonly string[][] TeamPresets =
+            int idx = Math.Clamp(GetValue(context.Session), 0, Choices.Count - 1);
+            string token = Choices[idx].SwatchToken;
+            if (string.IsNullOrEmpty(token))
+                return node;
+
+            var raw = new MenuRawNode("customhud.panorama", $"swatch={token}");
+            return node is MenuLineNode line
+                ? line with { Children = [.. line.Children, raw] }
+                : MenuLineNode.Of(node, raw);
+        }
+    }
+
+    private sealed class DangerSubmenuComponent : SubmenuComponent
     {
-        Array.Empty<string>(),
-        new[] { "T" },
-        new[] { "CT" },
-        new[] { "SPEC" }
-    };
+        public DangerSubmenuComponent(string text, Func<IMenuSession, IMenu?> factory, string? id = null)
+            : base(text, factory, id)
+        {
+        }
 
-    private static readonly string[] TeamPresetLabels = { "Herkes", "Sadece T", "Sadece CT", "Sadece İzleyici" };
+        public override MenuNode Render(IMenuComponentRenderContext context)
+        {
+            var node = base.Render(context);
+            var raw = new MenuRawNode("customhud.panorama", "danger");
+            return node is MenuLineNode line
+                ? line with { Children = [.. line.Children, raw] }
+                : MenuLineNode.Of(node, raw);
+        }
+    }
+
+    private sealed class PageState
+    {
+        public int? Focus { get; set; }
+        public object? FocusKey { get; set; }
+        public int RowsAt { get; set; }
+        public List<IMenuComponent> Rows { get; } = [];
+    }
 
     private readonly ISwiftlyCore _core;
     private readonly ConfigLoader _loader;
@@ -54,57 +141,8 @@ public sealed class TagAdminMenu
     private readonly TagService _service;
     private PluginConfig _config;
 
-    public IMenuApi? MenuApi { get; set; }
-
-    private readonly Dictionary<int, Session> _sessions = new();
-    private readonly Dictionary<int, (string Prompt, Action<IPlayer, string> Callback)> _pendingInput = new();
-    private readonly Dictionary<int, (string Html, float Time)> _lastHtml = new();
-
-    private enum RowStyle { Normal, Accent, On, Off, Danger, Muted }
-
-    private sealed record Row(
-        string Label,
-        string? Value = null,
-        bool Arrows = false,
-        RowStyle Style = RowStyle.Normal,
-        Action<IPlayer>? OnSelect = null,
-        Action<IPlayer, int>? OnAdjust = null);
-
-    private sealed class Page
-    {
-        public string Title { get; init; } = "";
-        public string Subtitle { get; init; } = "";
-        public List<Row> Rows { get; init; } = new();
-    }
-
-    private delegate Page PageBuilder(IPlayer admin);
-
-    private sealed class Session(PageBuilder root)
-    {
-        private readonly Stack<(PageBuilder Builder, int Cursor)> _history = new();
-        public PageBuilder Current { get; private set; } = root;
-        public int Cursor { get; set; }
-        public GameButtonFlags LastButtons { get; set; }
-        public float LastKeyTime { get; set; }
-
-        public void Push(PageBuilder next)
-        {
-            _history.Push((Current, Cursor));
-            Current = next;
-            Cursor = 0;
-        }
-
-        public bool Back()
-        {
-            if (_history.Count == 0) return false;
-            var (b, c) = _history.Pop();
-            Current = b;
-            Cursor = c;
-            return true;
-        }
-
-        public bool CanGoBack => _history.Count > 0;
-    }
+    private readonly Dictionary<int, List<IMenu>> _ownedMenus = new();
+    private readonly Dictionary<int, long> _lastToggleTick = new();
 
     public TagAdminMenu(ISwiftlyCore core, ConfigLoader loader, PluginConfig config, TagManager manager, TagService service)
     {
@@ -119,375 +157,894 @@ public sealed class TagAdminMenu
 
     public bool IsMenuOpen(int slot)
     {
-        if (_sessions.ContainsKey(slot)) return true;
-        if (MenuApi != null)
-        {
-            var p = _core.PlayerManager.GetPlayer(slot);
-            if (PlayerHelper.IsUsable(p) && MenuApi.HasActiveMenu(p!))
-            {
-                var active = MenuApi.GetActiveMenu(p!);
-                if (active != null && active.Id.StartsWith("ts.", StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
-        }
-        return false;
+        var player = _core.PlayerManager.GetPlayer(slot);
+        if (!PlayerHelper.IsUsable(player)) return false;
+
+        return _core.Menu.GetSession(player!) is { IsOpen: true, Menu.Tag: string tag } && tag == MenuTag;
     }
-    public bool IsWaitingChatInput(int slot) => _pendingInput.ContainsKey(slot);
 
     public void Toggle(IPlayer admin)
     {
-        if (MenuApi != null)
+        if (!PlayerHelper.IsUsable(admin))
+            return;
+
+        long now = Environment.TickCount64;
+        if (_lastToggleTick.TryGetValue(admin.Slot, out long prev) && now - prev < 150)
+            return;
+        _lastToggleTick[admin.Slot] = now;
+
+        if (_core.Menu.GetSession(admin) is { IsOpen: true, Menu.Tag: string tag } && tag == MenuTag)
         {
-            Open(admin);
+            Close(admin);
             return;
         }
-        if (IsMenuOpen(admin.Slot)) Close(admin);
-        else Open(admin);
+
+        Open(admin);
     }
 
     public void Open(IPlayer admin)
     {
-        _sessions[admin.Slot] = new Session(BuildMainPage)
-        {
-            LastButtons = admin.PressedButtons,
-            LastKeyTime = _core.Engine.GlobalVars.CurrentTime
-        };
-
-        if (MenuApi != null)
-        {
-            RenderMenuApiPage(admin, 0);
+        if (!PlayerHelper.IsUsable(admin))
             return;
-        }
 
-        SetFrozen(admin, true);
-        _service.Reply(admin, "Yönetim menüsü açıldı! [lime]W/S[default]: Gezin | [lime]A/D[default]: Değiştir | [lime]E[default]: Seç | [lime]R[default]: Geri/Kapat");
-    }
-
-    private void RenderMenuApiPage(IPlayer admin, int pageIndex = 0)
-    {
-        if (MenuApi == null) return;
-        if (!_sessions.TryGetValue(admin.Slot, out var session)) return;
-
-        var page = session.Current(admin);
-        var builder = MenuApi.CreateBuilder($"ts.admin.{admin.Slot}", $"✦ {page.Title} ✦")
-            .SetTheme(MenuTheme.Blue)
-            .SetItemsPerPage(7)
-            .SetTimeout(TimeSpan.FromSeconds(60))
-            .EnableSounds(true)
-            .EnableSlotSelection(true)
-            .EnableChatSelection(true);
-
-        if (!string.IsNullOrWhiteSpace(page.Subtitle))
-        {
-            builder.SetSubtitle(page.Subtitle);
-        }
-
-        foreach (var row in page.Rows)
-        {
-            var r = row;
-            string valStr = string.IsNullOrWhiteSpace(r.Value) ? "" : $" [{r.Value}]";
-            string text = $"{r.Label}{valStr}";
-            string color = r.Style switch
-            {
-                RowStyle.Danger => "#F87171",
-                RowStyle.Accent => "#38BDF8",
-                RowStyle.On => "#4ADE80",
-                RowStyle.Off => "#F87171",
-                RowStyle.Muted => "#94A3B8",
-                _ => "#E2E8F0"
-            };
-
-            bool isInteractive = r.OnSelect != null || r.OnAdjust != null;
-            if (!isInteractive)
-            {
-                builder.AddText(text, color);
-                continue;
-            }
-
-            builder.AddItem(text, ctx =>
-            {
-                if (!_sessions.ContainsKey(ctx.Player.Slot)) return;
-                if (r.OnSelect != null)
-                {
-                    r.OnSelect(ctx.Player);
-                }
-                else
-                {
-                    r.OnAdjust?.Invoke(ctx.Player, +1);
-                }
-
-                if (_sessions.ContainsKey(ctx.Player.Slot) && !_pendingInput.ContainsKey(ctx.Player.Slot))
-                {
-                    RenderMenuApiPage(ctx.Player, r.OnSelect != null ? 0 : ctx.PageIndex);
-                }
-            }, color, enabled: r.Style != RowStyle.Muted, closeOnSelect: false);
-        }
-
-        if (session.CanGoBack)
-        {
-            builder.AddItem("⬅️ Geri Dön", ctx =>
-            {
-                if (_sessions.TryGetValue(ctx.Player.Slot, out var s))
-                {
-                    _pendingInput.Remove(ctx.Player.Slot);
-                    if (s.Back())
-                        RenderMenuApiPage(ctx.Player, 0);
-                    else
-                        Close(ctx.Player);
-                }
-            }, "#FFB000", enabled: true, closeOnSelect: false);
-        }
-
-        builder.Open(admin, pageIndex);
+        Close(admin);
+        var menu = BuildMainMenu(admin.Slot);
+        menu.Open(admin);
     }
 
     public void Close(IPlayer admin)
     {
-        _pendingInput.Remove(admin.Slot);
-        if (MenuApi != null && MenuApi.HasActiveMenu(admin))
+        if (!PlayerHelper.IsUsable(admin))
+            return;
+
+        if (_core.Menu.GetSession(admin) is { IsOpen: true, Menu.Tag: string tag } && tag == MenuTag)
         {
-            MenuApi.CloseMenu(admin);
+            _core.Menu.CloseFor(admin);
         }
-        if (_sessions.Remove(admin.Slot))
-        {
-            SetFrozen(admin, false);
-            if (_lastHtml.Remove(admin.Slot))
-                admin.SendCenterHTML(" ", 1);
-        }
+
+        DisposeSlotMenus(admin.Slot);
     }
 
     public void OnPlayerDisconnected(int slot)
     {
-        _sessions.Remove(slot);
-        _pendingInput.Remove(slot);
-        _lastHtml.Remove(slot);
+        _lastToggleTick.Remove(slot);
+        DisposeSlotMenus(slot);
     }
 
     public void CloseAll()
     {
-        foreach (var p in _core.PlayerManager.GetAllPlayers().Where(PlayerHelper.IsUsable))
+        try { _core.Menu.CloseAll(); } catch { }
+
+        foreach (int slot in _ownedMenus.Keys.ToList())
         {
-            if (_sessions.ContainsKey(p!.Slot)) Close(p);
+            DisposeSlotMenus(slot);
         }
-        _sessions.Clear();
-        _pendingInput.Clear();
-        _lastHtml.Clear();
+        _ownedMenus.Clear();
     }
 
-    /// <summary>Chat hook icinden cagrilir; admin metin girisi bekliyorsa mesaji yakalar.</summary>
-    public bool TryConsumeChatInput(int playerId, string text)
+    private IMenu Track(int slot, IMenu menu)
     {
-        if (!_pendingInput.TryGetValue(playerId, out var pending)) return false;
-
-        var admin = _core.PlayerManager.GetPlayer(playerId);
-        if (!PlayerHelper.IsUsable(admin))
+        menu.Tag = MenuTag;
+        if (!_ownedMenus.TryGetValue(slot, out var list))
         {
-            _pendingInput.Remove(playerId);
-            return false;
+            list = new List<IMenu>();
+            _ownedMenus[slot] = list;
         }
-
-        var trimmed = (text ?? string.Empty).Trim();
-        if (trimmed.Length >= 2 && trimmed[0] == '"' && trimmed[^1] == '"')
-            trimmed = trimmed[1..^1].Trim();
-
-        _pendingInput.Remove(playerId);
-
-        if (trimmed.Equals("iptal", StringComparison.OrdinalIgnoreCase) ||
-            trimmed.Equals("!iptal", StringComparison.OrdinalIgnoreCase) ||
-            trimmed.Equals("cancel", StringComparison.OrdinalIgnoreCase))
-        {
-            _service.Reply(admin, "[red]Giriş iptal edildi.[default]");
-            if (MenuApi != null && _sessions.ContainsKey(admin!.Slot))
-                RenderMenuApiPage(admin, 0);
-            return true;
-        }
-
-        pending.Callback(admin!, trimmed);
-        if (MenuApi != null && _sessions.ContainsKey(admin!.Slot))
-            RenderMenuApiPage(admin, 0);
-        return true;
+        list.Add(menu);
+        return menu;
     }
 
-    private void PromptInput(IPlayer admin, string prompt, Action<IPlayer, string> callback)
+    private void DisposeSlotMenus(int slot)
     {
-        _pendingInput[admin.Slot] = (prompt, callback);
-        if (MenuApi != null && MenuApi.HasActiveMenu(admin))
-        {
-            MenuApi.CloseMenu(admin);
-        }
-        _service.Reply(admin, $"[gold]{prompt}[default] (İptal için sohbete [red]iptal[default] yazın)");
-    }
-
-    // ============================== TICK & INPUT ==============================
-
-    public void OnTick()
-    {
-        if (MenuApi != null) return;
-        if (_sessions.Count == 0) return;
-
-        foreach (var kv in _sessions.ToList())
-        {
-            var admin = _core.PlayerManager.GetPlayer(kv.Key);
-            if (!PlayerHelper.IsUsable(admin))
-            {
-                OnPlayerDisconnected(kv.Key);
-                continue;
-            }
-
-            PollButtons(admin!, kv.Value);
-            Render(admin!, kv.Value);
-        }
-    }
-
-    private void PollButtons(IPlayer admin, Session session)
-    {
-        if (_config.Settings.FreezeWhileMenuOpen)
-            SetFrozen(admin, true);
-
-        var buttons = admin.PressedButtons;
-        var rising = buttons & ~session.LastButtons;
-        session.LastButtons = buttons;
-        if (rising == 0) return;
-
-        if ((rising & GameButtonFlags.W) != 0) OnKeyPressed(admin, KeyKind.W);
-        else if ((rising & GameButtonFlags.S) != 0) OnKeyPressed(admin, KeyKind.S);
-        else if ((rising & GameButtonFlags.A) != 0) OnKeyPressed(admin, KeyKind.A);
-        else if ((rising & GameButtonFlags.D) != 0) OnKeyPressed(admin, KeyKind.D);
-        else if ((rising & GameButtonFlags.E) != 0) OnKeyPressed(admin, KeyKind.E);
-        else if ((rising & GameButtonFlags.R) != 0) OnKeyPressed(admin, KeyKind.R);
-    }
-
-    public void OnKeyPressed(IPlayer admin, KeyKind key)
-    {
-        if (!_sessions.TryGetValue(admin.Slot, out var session)) return;
-
-        var now = _core.Engine.GlobalVars.CurrentTime;
-        if (now - session.LastKeyTime < 0.12f) return;
-        session.LastKeyTime = now;
-
-        var page = session.Current(admin);
-        var count = page.Rows.Count;
-        if (count == 0) return;
-        session.Cursor = Math.Clamp(session.Cursor, 0, count - 1);
-
-        switch (key)
-        {
-            case KeyKind.W:
-                session.Cursor = (session.Cursor - 1 + count) % count;
-                break;
-            case KeyKind.S:
-                session.Cursor = (session.Cursor + 1) % count;
-                break;
-            case KeyKind.A:
-                page.Rows[session.Cursor].OnAdjust?.Invoke(admin, -1);
-                break;
-            case KeyKind.D:
-                page.Rows[session.Cursor].OnAdjust?.Invoke(admin, +1);
-                break;
-            case KeyKind.E:
-                var r = page.Rows[session.Cursor];
-                if (r.OnSelect != null) r.OnSelect(admin);
-                else r.OnAdjust?.Invoke(admin, +1);
-                break;
-            case KeyKind.R:
-            case KeyKind.Esc:
-                _pendingInput.Remove(admin.Slot);
-                if (!session.Back()) Close(admin);
-                break;
-        }
-    }
-
-    private void Render(IPlayer admin, Session session)
-    {
-        var page = session.Current(admin);
-        if (page.Rows.Count > 0)
-            session.Cursor = Math.Clamp(session.Cursor, 0, page.Rows.Count - 1);
-
-        int pageIdx = session.Cursor / RowsPerPage;
-        int pageCount = Math.Max(1, (page.Rows.Count + RowsPerPage - 1) / RowsPerPage);
-        var slice = page.Rows.Skip(pageIdx * RowsPerPage).Take(RowsPerPage).ToList();
-        int selectedInSlice = session.Cursor - pageIdx * RowsPerPage;
-
-        var sb = new StringBuilder();
-        sb.Append($"<font class='fontSize-m' color='#38BDF8'><b>✦ {E(page.Title)} ✦</b></font>");
-        if (pageCount > 1)
-            sb.Append($" <font class='fontSize-s' color='#94A3B8'>[{pageIdx + 1}/{pageCount}]</font>");
-        sb.Append("<br>");
-
-        if (!string.IsNullOrEmpty(page.Subtitle))
-            sb.Append($"<font class='fontSize-xs' color='#CBD5E1'>{E(page.Subtitle)}</font><br>");
-
-        for (int i = 0; i < slice.Count; i++)
-        {
-            var row = slice[i];
-            bool sel = i == selectedInSlice;
-            var labelColor = sel ? "#FACC15" : row.Style switch
-            {
-                RowStyle.Danger => "#F87171",
-                RowStyle.Accent => "#38BDF8",
-                RowStyle.Muted => "#64748B",
-                _ => "#F8FAFC"
-            };
-
-            sb.Append("<font class='fontSize-sm'>");
-            sb.Append(sel ? "<font color='#FACC15'><b>➤ </b></font>" : "<font color='#475569'>• </font>");
-            sb.Append(sel
-                ? $"<font color='{labelColor}'><b>{E(row.Label)}</b></font>"
-                : $"<font color='{labelColor}'>{E(row.Label)}</font>");
-
-            if (!string.IsNullOrEmpty(row.Value))
-            {
-                var valColor = row.Style switch
-                {
-                    RowStyle.On => "#4ADE80",
-                    RowStyle.Off => "#F87171",
-                    _ => "#E2E8F0"
-                };
-                var v = row.Arrows ? $"◀ {E(row.Value)} ▶" : $"[{E(row.Value)}]";
-                sb.Append($" <font color='{valColor}'><b>{v}</b></font>");
-            }
-            sb.Append("</font><br>");
-        }
-
-        if (_pendingInput.TryGetValue(admin.Slot, out var pending))
-            sb.Append($"<font class='fontSize-s' color='#FBBF24'><b>💬 Sohbete yazın: {E(pending.Prompt)}</b></font><br>");
-
-        sb.Append("<font class='fontSize-xs' color='#94A3B8'>[W/S] Gezin • [A/D] Değiştir • [E] Seç • [R] Geri/Kapat</font>");
-
-        var html = sb.ToString();
-        var now = _core.Engine.GlobalVars.CurrentTime;
-        if (_lastHtml.TryGetValue(admin.Slot, out var last) && last.Html == html && now - last.Time < ResendSeconds)
+        if (!_ownedMenus.TryGetValue(slot, out var list))
             return;
 
-        _lastHtml[admin.Slot] = (html, now);
-        admin.SendCenterHTML(html, HtmlDurationMs);
-    }
-
-    private static string E(string s) => WebUtility.HtmlEncode(s);
-
-    private void SetFrozen(IPlayer player, bool freeze)
-    {
-        if (!_config.Settings.FreezeWhileMenuOpen && freeze) return;
-        try
+        foreach (var menu in list)
         {
-            var pawn = player.PlayerPawn;
-            if (pawn is not { IsValid: true }) return;
-            var target = freeze ? MoveType_t.MOVETYPE_NONE : MoveType_t.MOVETYPE_WALK;
-            if (pawn.MoveType != target)
-            {
-                pawn.MoveType = target;
-                pawn.ActualMoveType = target;
-                pawn.MoveTypeUpdated();
-            }
-            if (freeze)
-            {
-                pawn.AbsVelocity.X = 0f;
-                pawn.AbsVelocity.Y = 0f;
-                pawn.AbsVelocity.Z = 0f;
-            }
+            try { menu.Dispose(); } catch { }
         }
-        catch { /* yoksay */ }
+        list.Clear();
+        _ownedMenus.Remove(slot);
     }
+
+    // ============================== 1. ANA MENÜ ==============================
+
+    private IMenu BuildMainMenu(int ownerSlot)
+    {
+        IMenu? mainMenu = null;
+        var playersMenu = BuildOnlinePlayersMenu(ownerSlot);
+        var customPlayersMenu = BuildCustomPlayersMenu(ownerSlot);
+        var groupsMenu = BuildGroupsListMenu(ownerSlot);
+        var settingsMenu = BuildSettingsMenu(ownerSlot);
+
+        var createGroupInput = CreateNewGroupInput(ownerSlot, () =>
+        {
+            groupsMenu.Parent ??= mainMenu;
+            return groupsMenu;
+        });
+
+        mainMenu = _core.Menu.CreateMenu("tagsystem.main")
+            .WithTitle("TAGSYSTEM YÖNETİM")
+            .AddHeader(new TextComponent
+            {
+                TextProvider = session =>
+                {
+                    var resolved = _manager.Resolve(session.Player);
+                    return $"{_config.Groups.Count} grup • {_config.Players.Count} özel • Etiket: {SafeMenuText(resolved.Label, 18)}";
+                }
+            })
+            .Add(new SubmenuComponent("Oyuncuya Etiket / Grup Ver", playersMenu, "players")
+            {
+                TextProvider = _ =>
+                {
+                    int onlineCount = _core.PlayerManager.GetAllPlayers()
+                        .Count(p => PlayerHelper.IsUsable(p) && (!p!.IsFakeClient || _config.Settings.ApplyToBots));
+                    return $"Oyuncuya Etiket / Grup Ver\t{onlineCount} aktif";
+                }
+            })
+            .Add(new SubmenuComponent("Özel Oyuncu Etiketleri", customPlayersMenu, "custom_players")
+            {
+                TextProvider = _ => $"Özel Oyuncu Etiketleri\t{_config.Players.Count}"
+            })
+            .Add(new SubmenuComponent("Yetki Gruplarını Yönet", groupsMenu, "groups")
+            {
+                TextProvider = _ => $"Yetki Gruplarını Yönet\t{_config.Groups.Count}"
+            })
+            .Add(createGroupInput)
+            .Add(new SubmenuComponent("Varsayılan [default] Etiket",
+                _ => BuildEntryEditMenu(ownerSlot, _config.Default, "Varsayılan [default]", null, mainMenu), "default_tag")
+            {
+                TextProvider = _ => $"Varsayılan [default] Etiket\t{SafeMenuText(_config.Default.ChatTag, 16, "-")}"
+            })
+            .Add(new SubmenuComponent("Genel Ayarlar", settingsMenu, "settings"))
+            .Add(new ButtonComponent("Sohbete Canlı Test Mesajı At", ctx =>
+            {
+                _service.SendTestChat(ctx.Player, null, "TagSystem canlı renkli chat önizlemesi!");
+                _service.Reply(ctx.Player, "Renkli test sohbet satırı chat kutunuza gönderildi.");
+                return ValueTask.CompletedTask;
+            }))
+            .Build();
+
+        return Track(ownerSlot, mainMenu);
+    }
+
+    // ============================== 2. AKTİF OYUNCULAR ==============================
+
+    private IMenu BuildOnlinePlayersMenu(int ownerSlot)
+    {
+        var page = new PageState { RowsAt = 0 };
+        IMenu? playersMenu = null;
+
+        var builder = _core.Menu.CreateMenu("tagsystem.players")
+            .WithTitle("OYUNCU SEÇİN")
+            .AddHeader(new TextComponent("Etiket veya grup atamak istediğiniz oyuncuyu seçin"));
+
+        playersMenu = Track(ownerSlot, builder.Build());
+
+        void Populate()
+        {
+            var players = _core.PlayerManager.GetAllPlayers()
+                .Where(p => PlayerHelper.IsUsable(p) && (!p!.IsFakeClient || _config.Settings.ApplyToBots))
+                .ToList();
+
+            var rows = new List<IMenuComponent>();
+            foreach (var target in players)
+            {
+                var sid = PlayerHelper.GetSteamId64(target);
+                var name = PlayerHelper.GetName(target);
+                var safeName = SafeMenuText(name, 22, "Oyuncu");
+                var resolved = _manager.Resolve(target);
+                string badge = $"{SafeMenuText(resolved.Label, 14, "-")} ({SafeMenuText(resolved.SourceId, 12)})";
+
+                if (sid == 0)
+                {
+                    rows.Add(new ButtonComponent($"{safeName}\tSteamID Yok", ctx =>
+                    {
+                        _service.Reply(ctx.Player, "[red]Bu oyuncunun SteamID doğrulaması henüz tamamlanmamış.[default]");
+                        return ValueTask.CompletedTask;
+                    }));
+                }
+                else
+                {
+                    rows.Add(new SubmenuComponent($"{safeName}\t{badge}",
+                        _ => BuildManagePlayerMenu(ownerSlot, sid, name))
+                    {
+                        Tag = sid
+                    });
+                }
+            }
+
+            if (rows.Count == 0)
+            {
+                rows.Add(new TextComponent("Aktif oyuncu yok"));
+            }
+
+            ReplaceRows(playersMenu, page, rows);
+        }
+
+        playersMenu.Opened += session =>
+        {
+            Populate();
+            RestoreFocus(session, page);
+        };
+
+        playersMenu.FocusChanged += session =>
+        {
+            page.Focus = session.FocusedIndex;
+            page.FocusKey = (session.FocusedComponent as MenuComponentBase)?.Tag;
+        };
+
+        return playersMenu;
+    }
+
+    // ============================== 3. TEK OYUNCU YÖNETİMİ ==============================
+
+    private IMenu BuildManagePlayerMenu(int ownerSlot, ulong steamId, string displayName)
+    {
+        var steam2 = SteamIdHelper.ToSteam2(steamId);
+        var safeName = SafeMenuText(displayName, 24, steam2);
+        var page = new PageState { RowsAt = 1 };
+        IMenu? playerMenu = null;
+
+        var testBtn = new ButtonComponent("Bu Oyuncu Adına Test Mesajı At", ctx =>
+        {
+            var custom = _config.Players.FirstOrDefault(p => p.SteamId64 == steamId);
+            _service.SendTestChat(ctx.Player, custom, $"{displayName} adına test chat satırı!");
+            _service.Reply(ctx.Player, $"{safeName} için test chat satırı sohbete gönderildi.");
+            return ValueTask.CompletedTask;
+        });
+
+        var builder = _core.Menu.CreateMenu("tagsystem.player")
+            .WithTitle($"OYUNCU: {safeName}")
+            .AddHeader(new TextComponent
+            {
+                TextProvider = _ =>
+                {
+                    var targetPlayer = _core.PlayerManager.GetAllPlayers()
+                        .FirstOrDefault(p => PlayerHelper.IsUsable(p) && PlayerHelper.GetSteamId64(p) == steamId);
+                    var custom = _config.Players.FirstOrDefault(p => p.SteamId64 == steamId);
+                    var res = targetPlayer != null
+                        ? _manager.Resolve(targetPlayer)
+                        : (custom != null ? _manager.BuildResolvedTag(custom) : _manager.BuildResolvedTag(_config.Default));
+                    return $"{steam2} • Aktif: {SafeMenuText(res.Label, 18, "-")}";
+                }
+            })
+            .Add(testBtn);
+
+        playerMenu = Track(ownerSlot, builder.Build());
+
+        void Populate()
+        {
+            var rows = new List<IMenuComponent>();
+            var customEntry = _config.Players.FirstOrDefault(p => p.SteamId64 == steamId);
+
+            if (customEntry != null)
+            {
+                rows.Add(new SubmenuComponent($"Özel Etiketini Düzenle\t{SafeMenuText(customEntry.ChatTag, 16, "-")}",
+                    _ => BuildEntryEditMenu(ownerSlot, customEntry, $"Özel: {safeName}", () =>
+                    {
+                        _config.Players.Remove(customEntry);
+                        SaveAndApply();
+                    }, playerMenu))
+                {
+                    Tag = "edit_custom"
+                });
+
+                rows.Add(new DangerSubmenuComponent("Özel Etiketini Kaldır", _ =>
+                    BuildConfirmDeleteMenu(ownerSlot, safeName, "Kişisel özel etiketi kalıcı olarak kaldırılacak.", () =>
+                    {
+                        _config.Players.RemoveAll(x => x.SteamId64 == steamId);
+                        SaveAndApply();
+                        _service.Reply(_core.PlayerManager.GetPlayer(ownerSlot), $"[lime]{safeName}[default] oyuncusunun özel etiketi kaldırıldı.");
+                    }, playerMenu), "remove_custom")
+                {
+                    Tag = "remove_custom"
+                });
+            }
+            else
+            {
+                bool creating = false;
+                InputComponent? createInput = null;
+                createInput = new InputComponent(
+                    "Özel Kişisel Etiket Ver",
+                    defaultValue: "",
+                    onChanged: change =>
+                    {
+                        if (creating) return;
+                        creating = true;
+                        var text = change.NewValue.Trim();
+                        createInput?.SetValue(change.Session, "");
+                        creating = false;
+
+                        var pData = new PlayerData
+                        {
+                            Id = $"player:{steamId}",
+                            SteamId64 = steamId,
+                            RawSteamId = steam2,
+                            DisplayName = displayName,
+                            ChatTag = text,
+                            ScoreboardTag = TagService.StripOuterBrackets(text),
+                            ChatTagColor = "gold",
+                            NameColor = "gold",
+                            Priority = 1000,
+                            Enabled = true
+                        };
+                        _config.Players.Add(pData);
+                        SaveAndApply();
+                        _service.Reply(change.Player, $"[lime]{safeName}[default] oyuncusuna [gold]{text}[default] özel etiketi verildi!");
+
+                        var admin = change.Player;
+                        _core.Scheduler.NextWorldUpdate(() =>
+                        {
+                            if (!PlayerHelper.IsUsable(admin)) return;
+                            var edit = BuildEntryEditMenu(ownerSlot, pData, $"Özel: {safeName}", () =>
+                            {
+                                _config.Players.Remove(pData);
+                                SaveAndApply();
+                            }, playerMenu);
+                            edit.Parent = playerMenu;
+                            edit.Open(admin);
+                        });
+                    },
+                    id: "give_custom")
+                {
+                    MaxLength = 64,
+                    EmptyText = "Sohbete Yaz",
+                    HintMessage = $"[gold]{safeName} için yeni özel etiket yazın[default] (örn: [lime][KRAL][default])",
+                    Tag = "give_custom"
+                };
+
+                rows.Add(createInput);
+            }
+
+            foreach (var g in _config.Groups)
+            {
+                var group = g;
+                bool isMember = group.Members.Contains(steamId);
+                rows.Add(new ToggleComponent(
+                    $"Grup: {SafeMenuText(group.Label, 16)} ({SafeMenuText(group.Id, 12)})",
+                    isMember,
+                    change =>
+                    {
+                        if (change.NewValue)
+                        {
+                            group.Members.Add(steamId);
+                            _service.Reply(change.Player, $"[lime]{safeName}[default], [gold]{group.Id}[default] grubuna eklendi.");
+                        }
+                        else
+                        {
+                            group.Members.Remove(steamId);
+                            _service.Reply(change.Player, $"[lime]{safeName}[default], [gold]{group.Id}[default] grubundan çıkarıldı.");
+                        }
+                        SaveAndApply();
+                        change.Session.Invalidate();
+                    })
+                {
+                    DefaultValueProvider = _ => group.Members.Contains(steamId),
+                    Tag = $"grp:{group.Id}"
+                });
+            }
+
+            ReplaceRows(playerMenu, page, rows);
+        }
+
+        playerMenu.Opened += session =>
+        {
+            Populate();
+            RestoreFocus(session, page);
+        };
+
+        playerMenu.FocusChanged += session =>
+        {
+            page.Focus = session.FocusedIndex;
+            page.FocusKey = (session.FocusedComponent as MenuComponentBase)?.Tag;
+        };
+
+        return playerMenu;
+    }
+
+    // ============================== 4. ÖZEL OYUNCU ETİKETLERİ ==============================
+
+    private IMenu BuildCustomPlayersMenu(int ownerSlot)
+    {
+        var page = new PageState { RowsAt = 0 };
+        IMenu? listMenu = null;
+
+        var builder = _core.Menu.CreateMenu("tagsystem.custom_players")
+            .WithTitle("ÖZEL OYUNCU ETİKETLERİ")
+            .AddHeader(new TextComponent
+            {
+                TextProvider = _ => $"{_config.Players.Count} kayıtlı özel oyuncu • Düzenlemek için seçin"
+            });
+
+        listMenu = Track(ownerSlot, builder.Build());
+
+        void Populate()
+        {
+            var rows = new List<IMenuComponent>();
+            foreach (var p in _config.Players.ToList())
+            {
+                var entry = p;
+                var steam2 = SteamIdHelper.ToSteam2(entry.SteamId64);
+                var rawLabel = !string.IsNullOrWhiteSpace(entry.DisplayName) ? $"{entry.DisplayName} ({steam2})" : steam2;
+                var safeLabel = SafeMenuText(rawLabel, 24, steam2);
+
+                rows.Add(new SubmenuComponent(
+                    $"{safeLabel}\t{SafeMenuText(entry.ChatTag, 16, "-")}",
+                    _ => BuildEntryEditMenu(ownerSlot, entry, safeLabel, () =>
+                    {
+                        _config.Players.Remove(entry);
+                        SaveAndApply();
+                    }, listMenu))
+                {
+                    Tag = entry.Id
+                });
+            }
+
+            if (rows.Count == 0)
+            {
+                rows.Add(new TextComponent("Kayıtlı özel oyuncu yok"));
+            }
+
+            ReplaceRows(listMenu, page, rows);
+        }
+
+        listMenu.Opened += session =>
+        {
+            Populate();
+            RestoreFocus(session, page);
+        };
+
+        listMenu.FocusChanged += session =>
+        {
+            page.Focus = session.FocusedIndex;
+            page.FocusKey = (session.FocusedComponent as MenuComponentBase)?.Tag;
+        };
+
+        return listMenu;
+    }
+
+    // ============================== 5. YETKİ GRUPLARI ==============================
+
+    private IMenu BuildGroupsListMenu(int ownerSlot)
+    {
+        var page = new PageState { RowsAt = 1 };
+        IMenu? groupsMenu = null;
+
+        var createInput = CreateNewGroupInput(ownerSlot, () => groupsMenu);
+
+        var builder = _core.Menu.CreateMenu("tagsystem.groups")
+            .WithTitle("YETKİ GRUPLARI")
+            .AddHeader(new TextComponent("Öncelik sırasına göre listelenir"))
+            .Add(createInput);
+
+        groupsMenu = Track(ownerSlot, builder.Build());
+
+        void Populate()
+        {
+            var rows = new List<IMenuComponent>();
+            foreach (var g in _config.Groups.OrderByDescending(x => x.Priority).ToList())
+            {
+                var group = g;
+                string status = group.Enabled ? "P" : "KAPALI • P";
+                rows.Add(new SubmenuComponent(
+                    $"{SafeMenuText(group.Id, 14)} ({SafeMenuText(group.ChatTag, 14, "-")})\t{status}:{group.Priority} | {group.Members.Count}",
+                    _ => BuildEntryEditMenu(ownerSlot, group, $"Grup: {group.Id}", () =>
+                    {
+                        _config.Groups.Remove(group);
+                        SaveAndApply();
+                    }, groupsMenu))
+                {
+                    Tag = group.Id
+                });
+            }
+
+            if (rows.Count == 0)
+            {
+                rows.Add(new TextComponent("Kayıtlı grup bulunmuyor"));
+            }
+
+            ReplaceRows(groupsMenu, page, rows);
+        }
+
+        groupsMenu.Opened += session =>
+        {
+            Populate();
+            RestoreFocus(session, page);
+        };
+
+        groupsMenu.FocusChanged += session =>
+        {
+            page.Focus = session.FocusedIndex;
+            page.FocusKey = (session.FocusedComponent as MenuComponentBase)?.Tag;
+        };
+
+        return groupsMenu;
+    }
+
+    private InputComponent CreateNewGroupInput(int ownerSlot, Func<IMenu?> groupsMenuProvider)
+    {
+        bool creating = false;
+        InputComponent? input = null;
+
+        input = new InputComponent(
+            "Yeni Grup Oluştur",
+            defaultValue: "",
+            validator: raw =>
+            {
+                var id = NormalizeGroupId(raw);
+                return !string.IsNullOrWhiteSpace(id) && !_config.Groups.Any(g => g.Id.Equals(id, StringComparison.OrdinalIgnoreCase));
+            },
+            onChanged: change =>
+            {
+                if (creating) return;
+                var id = NormalizeGroupId(change.NewValue);
+                if (string.IsNullOrWhiteSpace(id) || _config.Groups.Any(g => g.Id.Equals(id, StringComparison.OrdinalIgnoreCase)))
+                    return;
+
+                creating = true;
+                input?.SetValue(change.Session, "");
+                creating = false;
+
+                var tagText = $"[{id.ToUpperInvariant()}]";
+                var group = new GroupData
+                {
+                    Id = id,
+                    DisplayName = id.ToUpperInvariant(),
+                    Permissions = [id, $"tagsystem.{id}"],
+                    ChatTag = tagText,
+                    ScoreboardTag = id.ToUpperInvariant(),
+                    ChatTagColor = "gold",
+                    NameColor = "gold",
+                    Priority = 50,
+                    Enabled = true
+                };
+                _config.Groups.Add(group);
+                SaveAndApply();
+                _service.Reply(change.Player, $"[lime]'{id}'[default] grubu oluşturuldu! Şimdi detaylarını düzenleyebilirsiniz.");
+
+                var admin = change.Player;
+                _core.Scheduler.NextWorldUpdate(() =>
+                {
+                    if (!PlayerHelper.IsUsable(admin)) return;
+                    var groupsMenu = groupsMenuProvider();
+                    var editMenu = BuildEntryEditMenu(ownerSlot, group, $"Grup: {group.Id}", () =>
+                    {
+                        _config.Groups.Remove(group);
+                        SaveAndApply();
+                    }, groupsMenu);
+                    editMenu.Parent = groupsMenu ?? change.Session.Menu;
+                    editMenu.Open(admin);
+                });
+            },
+            id: "create_group")
+        {
+            MaxLength = 48,
+            EmptyText = "Sohbete Yaz",
+            HintMessage = "[gold]Yeni grubun ID'sini sohbete yazın[default] (örn: [lime]mod, rehber, supervip[default])",
+            InvalidText = "Geçersiz veya mevcut ID",
+            AcceptedText = "Grup oluşturuldu"
+        };
+
+        return input;
+    }
+
+    // ============================== 6. ETİKET DÜZENLEME ==============================
+
+    private IMenu BuildEntryEditMenu(int ownerSlot, TagEntry entry, string title, Action? onDelete, IMenu? parentForDelete)
+    {
+        bool syncingChatTag = false;
+        bool syncingClanTag = false;
+        bool syncingPriority = false;
+        bool syncingPerms = false;
+
+        InputComponent? chatTagInput = null;
+        InputComponent? clanTagInput = null;
+        SliderComponent? prioritySlider = null;
+        InputComponent? priorityInput = null;
+
+        chatTagInput = new InputComponent("Chat Etiketi", defaultValue: SafeMenuText(entry.ChatTag, 32), onChanged: change =>
+        {
+            if (syncingChatTag) return;
+            syncingChatTag = true;
+            var val = change.NewValue.Trim();
+            entry.ChatTag = val == "-" ? "" : val;
+            chatTagInput?.SetValue(change.Session, SafeMenuText(entry.ChatTag, 32));
+            syncingChatTag = false;
+            SaveAndApply();
+            change.Session.Invalidate();
+            _service.Reply(change.Player, $"Chat etiketi [lime]{entry.ChatTag}[default] olarak güncellendi.");
+        })
+        {
+            MaxLength = 64,
+            EmptyText = "(boş)",
+            DefaultValueProvider = _ => SafeMenuText(entry.ChatTag, 32),
+            HintMessage = "[gold]Yeni Chat Etiketini yazın[default] (örn: [lime][VIP][default] veya temizlemek için [lightred]-[default])"
+        };
+
+        clanTagInput = new InputComponent("Scoreboard / Clan Tag", defaultValue: SafeMenuText(entry.ScoreboardTag, 32), onChanged: change =>
+        {
+            if (syncingClanTag) return;
+            syncingClanTag = true;
+            var val = change.NewValue.Trim();
+            entry.ScoreboardTag = val == "-" ? "" : TagService.StripOuterBrackets(val);
+            clanTagInput?.SetValue(change.Session, SafeMenuText(entry.ScoreboardTag, 32));
+            syncingClanTag = false;
+            SaveAndApply();
+            change.Session.Invalidate();
+            _service.Reply(change.Player, $"Scoreboard etiketi [lime]{entry.ScoreboardTag}[default] olarak güncellendi.");
+        })
+        {
+            MaxLength = 48,
+            EmptyText = "(boş)",
+            DefaultValueProvider = _ => SafeMenuText(entry.ScoreboardTag, 32),
+            HintMessage = "[gold]Yeni Scoreboard Etiketini yazın[default] (boş bırakmak için [lightred]-[default] yazın)"
+        };
+
+        prioritySlider = new SliderComponent("Öncelik (Slider)", -1000f, 1000f, Math.Clamp(entry.Priority, -1000, 1000), 10f, change =>
+        {
+            if (syncingPriority) return;
+            syncingPriority = true;
+            entry.Priority = (int)MathF.Round(change.NewValue);
+            priorityInput?.SetValue(change.Session, entry.Priority.ToString(CultureInfo.InvariantCulture));
+            syncingPriority = false;
+            SaveAndApply();
+        })
+        {
+            TotalBars = 10,
+            ValueFormat = "0",
+            DefaultValueProvider = _ => Math.Clamp(entry.Priority, -1000, 1000)
+        };
+
+        priorityInput = new InputComponent("Özel Öncelik Sayısı", defaultValue: entry.Priority.ToString(CultureInfo.InvariantCulture),
+            validator: val => int.TryParse(val.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out _),
+            onChanged: change =>
+            {
+                if (syncingPriority) return;
+                if (!int.TryParse(change.NewValue.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int p))
+                    return;
+
+                syncingPriority = true;
+                entry.Priority = p;
+                prioritySlider?.SetValue(change.Session, Math.Clamp(p, -1000, 1000));
+                syncingPriority = false;
+                SaveAndApply();
+                _service.Reply(change.Player, $"Öncelik [lime]{p}[default] olarak güncellendi.");
+            })
+        {
+            MaxLength = 16,
+            DefaultValueProvider = _ => entry.Priority.ToString(CultureInfo.InvariantCulture),
+            HintMessage = "[gold]Öncelik sayısını yazın[default] (örn: [lime]100, 500, -100[default])",
+            InvalidText = "Sayı giriniz"
+        };
+
+        var builder = _core.Menu.CreateMenu("tagsystem.entry")
+            .WithTitle(SafeMenuText(title, 28, "ETİKET DÜZENLE"))
+            .AddHeader(new TextComponent
+            {
+                TextProvider = session =>
+                {
+                    var preview = _service.BuildPreviewChatLine(session.Player, entry, "Merhaba!", stripped: true);
+                    return SafeMenuText(preview, 44, "-");
+                }
+            })
+            .Add(new ButtonComponent("Sohbete Canlı Test Mesajı At", ctx =>
+            {
+                _service.SendTestChat(ctx.Player, entry, "TagSystem etiket önizleme test mesajı!");
+                return ValueTask.CompletedTask;
+            }))
+            .Add(new ButtonComponent("Ekrana Önizleme Göster (SendCenter)", ctx =>
+            {
+                var res = _manager.BuildResolvedTag(entry);
+                var cleanTag = string.IsNullOrEmpty(res.ChatTag) ? "" : $"{res.ChatTag} ";
+                var clan = string.IsNullOrEmpty(res.ScoreboardTag) ? "-" : res.ScoreboardTag;
+                ctx.Player.SendCenter($"[{clan}] {cleanTag}{PlayerHelper.GetName(ctx.Player)}: Merhaba Dünya!");
+                return ValueTask.CompletedTask;
+            }))
+            .Add(new ToggleComponent("Durum (Aktif)", entry.Enabled, change =>
+            {
+                entry.Enabled = change.NewValue;
+                SaveAndApply();
+                change.Session.Invalidate();
+            })
+            {
+                DefaultValueProvider = _ => entry.Enabled
+            })
+            .Add(chatTagInput)
+            .Add(clanTagInput)
+            .Add(new SelectorComponent<FrameOption>("Çerçeve / Sembol", FrameOptions, GetFrameIndex(entry.Frame), change =>
+            {
+                entry.Frame = change.NewValue.Key == "none" ? null : change.NewValue.Key;
+                SaveAndApply();
+                change.Session.Invalidate();
+            })
+            {
+                DefaultValueProvider = _ => GetFrameIndex(entry.Frame),
+                Formatter = f => f.Name
+            })
+            .Add(new SwatchColorSelector("Etiket Rengi", ColorPalette, GetColorIndex(entry.ChatTagColor ?? "gold"), change =>
+            {
+                entry.ChatTagColor = change.NewValue.Key;
+                SaveAndApply();
+                change.Session.Invalidate();
+            })
+            {
+                DefaultValueProvider = _ => GetColorIndex(entry.ChatTagColor ?? "gold")
+            })
+            .Add(new SwatchColorSelector("İsim Rengi", ColorPalette, GetColorIndex(entry.NameColor ?? "teamcolor"), change =>
+            {
+                entry.NameColor = change.NewValue.Key;
+                SaveAndApply();
+                change.Session.Invalidate();
+            })
+            {
+                DefaultValueProvider = _ => GetColorIndex(entry.NameColor ?? "teamcolor")
+            })
+            .Add(new SwatchColorSelector("Mesaj Rengi", ColorPalette, GetColorIndex(entry.MessageColor ?? "default"), change =>
+            {
+                entry.MessageColor = change.NewValue.Key;
+                SaveAndApply();
+                change.Session.Invalidate();
+            })
+            {
+                DefaultValueProvider = _ => GetColorIndex(entry.MessageColor ?? "default")
+            })
+            .Add(prioritySlider)
+            .Add(priorityInput);
+
+        if (entry is GroupData group)
+        {
+            InputComponent? permsInput = null;
+            permsInput = new InputComponent(
+                "Yetkiler",
+                defaultValue: string.Join(", ", group.Permissions),
+                onChanged: change =>
+                {
+                    if (syncingPerms) return;
+                    syncingPerms = true;
+                    var raw = change.NewValue.Trim();
+                    group.Permissions = raw == "-"
+                        ? []
+                        : raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+                    permsInput?.SetValue(change.Session, SafeMenuText(string.Join(", ", group.Permissions), 48));
+                    syncingPerms = false;
+                    SaveAndApply();
+                    _service.Reply(change.Player, $"Grup yetkileri güncellendi: [lime]{string.Join(", ", group.Permissions)}[default]");
+                })
+            {
+                MaxLength = 256,
+                EmptyText = "(yok)",
+                DefaultValueProvider = _ => SafeMenuText(string.Join(", ", group.Permissions), 48),
+                HintMessage = "[gold]Yetki anahtarlarını virgülle yazın[default] (temizlemek için [lightred]-[default])"
+            };
+            builder.Add(permsInput);
+        }
+
+        if (entry != _config.Default)
+        {
+            builder.Add(new SelectorComponent<int>("Takım Kısıtlaması", [0, 1, 2, 3], GetTeamPresetIndex(entry.Teams), change =>
+            {
+                entry.Teams = change.NewValue switch
+                {
+                    1 => ["T"],
+                    2 => ["CT"],
+                    3 => ["SPEC"],
+                    _ => []
+                };
+                SaveAndApply();
+            })
+            {
+                DefaultValueProvider = _ => GetTeamPresetIndex(entry.Teams),
+                Formatter = idx => idx switch
+                {
+                    1 => "Sadece T",
+                    2 => "Sadece CT",
+                    3 => "Sadece İzleyici",
+                    _ => "Herkes"
+                }
+            });
+        }
+
+        if (onDelete != null)
+        {
+            builder.Add(new DangerSubmenuComponent("Bu Kaydı Sil", _ =>
+                BuildConfirmDeleteMenu(ownerSlot, SafeMenuText(entry.Id, 24), "Bu etiket tanımı kalıcı olarak silinecek.", () =>
+                {
+                    onDelete();
+                    _service.Reply(_core.PlayerManager.GetPlayer(ownerSlot), "[red]Kayıt silindi.[default]");
+                }, parentForDelete), "delete"));
+        }
+
+        return Track(ownerSlot, builder.Build());
+    }
+
+    private IMenu BuildConfirmDeleteMenu(int ownerSlot, string subjectTitle, string description, Action onConfirm, IMenu? parentToJumpBack)
+    {
+        IMenu? confirmMenu = null;
+
+        confirmMenu = _core.Menu.CreateMenu("tagsystem.confirm_delete")
+            .WithTitle($"SİL: {SafeMenuText(subjectTitle, 24)}")
+            .AddHeader(new TextComponent(description))
+            .Add(new ButtonComponent("Evet, Sil", ctx =>
+            {
+                onConfirm();
+                if (confirmMenu != null && parentToJumpBack != null)
+                {
+                    confirmMenu.Parent = parentToJumpBack;
+                }
+                ctx.Session.Close();
+                return ValueTask.CompletedTask;
+            })
+            {
+                FocusedColor = "#F87171"
+            })
+            .Add(new ButtonComponent("Vazgeç", ctx =>
+            {
+                ctx.Session.Close();
+                return ValueTask.CompletedTask;
+            }))
+            .Build();
+
+        return Track(ownerSlot, confirmMenu);
+    }
+
+    // ============================== 7. GENEL AYARLAR ==============================
+
+    private IMenu BuildSettingsMenu(int ownerSlot)
+    {
+        var s = _config.Settings;
+        var c = _config.Chat;
+
+        var menu = _core.Menu.CreateMenu("tagsystem.settings")
+            .WithTitle("GENEL AYARLAR")
+            .AddHeader(new TextComponent("Değişiklikler anında kaydedilir"))
+            .Add(new ToggleComponent("Scoreboard (Clan Tag)", s.EnableScoreboardTag, change =>
+            {
+                s.EnableScoreboardTag = change.NewValue;
+                SaveAndApply();
+                if (!s.EnableScoreboardTag) _service.RestoreScoreboardAll();
+            })
+            {
+                DefaultValueProvider = _ => s.EnableScoreboardTag
+            })
+            .Add(new ToggleComponent("Chat Formatlama", s.EnableChatTag, change =>
+            {
+                s.EnableChatTag = change.NewValue;
+                SaveAndApply();
+            })
+            {
+                DefaultValueProvider = _ => s.EnableChatTag
+            })
+            .Add(new ToggleComponent("Yetki Sistemi (use_permissions)", s.UsePermissions, change =>
+            {
+                s.UsePermissions = change.NewValue;
+                SaveAndApply();
+            })
+            {
+                DefaultValueProvider = _ => s.UsePermissions
+            })
+            .Add(new ToggleComponent("Ölüler Sadece Ölülere Yazsın", c.DeadTalkOnlyToDead, change =>
+            {
+                c.DeadTalkOnlyToDead = change.NewValue;
+                SaveAndApply();
+            })
+            {
+                DefaultValueProvider = _ => c.DeadTalkOnlyToDead
+            })
+            .Add(new ToggleComponent("Botlara Etiket Uygula", s.ApplyToBots, change =>
+            {
+                s.ApplyToBots = change.NewValue;
+                SaveAndApply();
+            })
+            {
+                DefaultValueProvider = _ => s.ApplyToBots
+            })
+            .Build();
+
+        return Track(ownerSlot, menu);
+    }
+
+    // ============================== YARDIMCILAR ==============================
 
     private void SaveAndApply()
     {
@@ -499,385 +1056,20 @@ public sealed class TagAdminMenu
         _service.ApplyScoreboardAll();
     }
 
-    // ============================== MENU PAGES ==============================
+    private static string NormalizeGroupId(string? raw) =>
+        (raw ?? string.Empty).Trim().ToLowerInvariant().Replace(' ', '_');
 
-    private Page BuildMainPage(IPlayer admin)
+    private static int GetColorIndex(string color)
     {
-        var onlineCount = _core.PlayerManager.GetAllPlayers().Count(p => PlayerHelper.IsUsable(p) && !p!.IsFakeClient);
-        return new Page
-        {
-            Title = "TagSystem Yönetim",
-            Subtitle = $"{_config.Groups.Count} grup • {_config.Players.Count} özel oyuncu",
-            Rows =
-            {
-                new Row("👤 Oyuncuya Etiket / Grup Ver", $"{onlineCount} aktif", Style: RowStyle.Accent,
-                    OnSelect: p => _sessions[p.Slot].Push(BuildOnlinePlayersPage)),
-                new Row("⭐ Özel Oyuncu Etiketleri", _config.Players.Count.ToString(),
-                    OnSelect: p => _sessions[p.Slot].Push(BuildCustomPlayersPage)),
-                new Row("🛡️ Yetki Gruplarını Yönet", _config.Groups.Count.ToString(),
-                    OnSelect: p => _sessions[p.Slot].Push(BuildGroupsListPage)),
-                new Row("➕ Yeni Yetki Grubu Oluştur", Style: RowStyle.Accent,
-                    OnSelect: StartCreateGroupFlow),
-                new Row("⚙️ Varsayılan [default] Etiket", _config.Default.ChatTag ?? "-",
-                    OnSelect: p => _sessions[p.Slot].Push(_ => BuildEntryEditPage(_config.Default, "Varsayılan [default]"))),
-                new Row("🔧 Genel Ayarlar",
-                    OnSelect: p => _sessions[p.Slot].Push(BuildSettingsPage)),
-                new Row("❌ Menüyü Kapat", Style: RowStyle.Danger, OnSelect: Close)
-            }
-        };
+        int idx = Array.FindIndex(ColorPalette, c => c.Key.Equals(color, StringComparison.OrdinalIgnoreCase));
+        return idx < 0 ? 0 : idx;
     }
 
-    private Page BuildOnlinePlayersPage(IPlayer admin)
+    private static int GetFrameIndex(string? frame)
     {
-        var players = _core.PlayerManager.GetAllPlayers()
-            .Where(p => PlayerHelper.IsUsable(p) && (!p!.IsFakeClient || _config.Settings.ApplyToBots))
-            .ToList();
-
-        var rows = new List<Row>();
-        foreach (var target in players)
-        {
-            var sid = PlayerHelper.GetSteamId64(target);
-            var name = PlayerHelper.GetName(target);
-            var resolved = _manager.Resolve(target);
-            rows.Add(new Row(
-                Label: name,
-                Value: $"{resolved.Label} ({resolved.SourceId})",
-                Style: sid == 0 ? RowStyle.Muted : RowStyle.Normal,
-                OnSelect: a =>
-                {
-                    if (sid == 0)
-                    {
-                        _service.Reply(a, "[red]Bu oyuncunun SteamID doğrulaması henüz tamamlanmamış.[default]");
-                        return;
-                    }
-                    _sessions[a.Slot].Push(_ => BuildManagePlayerPage(sid, name));
-                }));
-        }
-
-        if (rows.Count == 0)
-            rows.Add(new Row("Aktif oyuncu yok", Style: RowStyle.Muted));
-
-        return new Page
-        {
-            Title = "Oyuncu Seçin",
-            Subtitle = "Etiket veya grup atamak istediğiniz oyuncuyu seçin",
-            Rows = rows
-        };
-    }
-
-    private Page BuildManagePlayerPage(ulong steamId, string displayName)
-    {
-        var steam2 = SteamIdHelper.ToSteam2(steamId);
-        var customEntry = _config.Players.FirstOrDefault(p => p.SteamId64 == steamId);
-
-        var rows = new List<Row>();
-
-        if (customEntry != null)
-        {
-            rows.Add(new Row("✏️ Özel Etiketini Düzenle", customEntry.ChatTag ?? "-", Style: RowStyle.Accent,
-                OnSelect: a => _sessions[a.Slot].Push(_ => BuildEntryEditPage(customEntry, $"Özel: {displayName}"))));
-            rows.Add(new Row("🗑️ Özel Etiketini Kaldır", Style: RowStyle.Danger,
-                OnSelect: a =>
-                {
-                    _config.Players.RemoveAll(x => x.SteamId64 == steamId);
-                    SaveAndApply();
-                    _service.Reply(a, $"[lime]{displayName}[default] oyuncusunun özel etiketi kaldırıldı.");
-                }));
-        }
-        else
-        {
-            rows.Add(new Row("✨ Özel Kişisel Etiket Ver (Sohbetten Yaz)", Style: RowStyle.Accent,
-                OnSelect: a => PromptInput(a, $"{displayName} için yeni etiket yazın (örn: [KRAL]):", (adm, text) =>
-                {
-                    var pData = new PlayerData
-                    {
-                        Id = $"player:{steamId}",
-                        SteamId64 = steamId,
-                        RawSteamId = steam2,
-                        DisplayName = text,
-                        ChatTag = text,
-                        ScoreboardTag = TagService.StripOuterBrackets(text),
-                        ChatTagColor = "gold",
-                        NameColor = "gold",
-                        Priority = 1000,
-                        Enabled = true
-                    };
-                    _config.Players.Add(pData);
-                    SaveAndApply();
-                    _service.Reply(adm, $"[lime]{displayName}[default] oyuncusuna [gold]{text}[default] özel etiketi verildi!");
-                    if (_sessions.TryGetValue(adm.Slot, out var s))
-                        s.Push(_ => BuildEntryEditPage(pData, $"Özel: {displayName}"));
-                })));
-        }
-
-        // Her grup icin uyelik toggle'i
-        foreach (var g in _config.Groups)
-        {
-            var group = g;
-            bool isMember = group.Members.Contains(steamId);
-            rows.Add(new Row(
-                Label: $"Grup Üyeliği: {group.Label} ({group.Id})",
-                Value: isMember ? "ÜYE" : "DEĞİL",
-                Arrows: true,
-                Style: isMember ? RowStyle.On : RowStyle.Off,
-                OnAdjust: (a, _) =>
-                {
-                    if (!group.Members.Add(steamId))
-                    {
-                        group.Members.Remove(steamId);
-                        _service.Reply(a, $"[lime]{displayName}[default], [gold]{group.Id}[default] grubundan çıkarıldı.");
-                    }
-                    else
-                    {
-                        _service.Reply(a, $"[lime]{displayName}[default], [gold]{group.Id}[default] grubuna eklendi.");
-                    }
-                    SaveAndApply();
-                }));
-        }
-
-        return new Page
-        {
-            Title = displayName,
-            Subtitle = steam2,
-            Rows = rows
-        };
-    }
-
-    private Page BuildCustomPlayersPage(IPlayer admin)
-    {
-        var rows = new List<Row>();
-        foreach (var p in _config.Players.ToList())
-        {
-            var entry = p;
-            var label = !string.IsNullOrWhiteSpace(entry.DisplayName) ? $"{entry.DisplayName} ({SteamIdHelper.ToSteam2(entry.SteamId64)})" : SteamIdHelper.ToSteam2(entry.SteamId64);
-            rows.Add(new Row(
-                Label: label,
-                Value: entry.ChatTag ?? "-",
-                OnSelect: a => _sessions[a.Slot].Push(_ => BuildEntryEditPage(entry, label, onDelete: () =>
-                {
-                    _config.Players.Remove(entry);
-                    SaveAndApply();
-                }))));
-        }
-
-        if (rows.Count == 0)
-            rows.Add(new Row("Kayıtlı özel oyuncu yok", Style: RowStyle.Muted));
-
-        return new Page
-        {
-            Title = "Özel Oyuncu Etiketleri",
-            Subtitle = "Düzenlemek için seçin",
-            Rows = rows
-        };
-    }
-
-    private Page BuildGroupsListPage(IPlayer admin)
-    {
-        var rows = new List<Row>
-        {
-            new("➕ Yeni Grup Oluştur", Style: RowStyle.Accent, OnSelect: StartCreateGroupFlow)
-        };
-
-        foreach (var g in _config.Groups.OrderByDescending(x => x.Priority).ToList())
-        {
-            var group = g;
-            rows.Add(new Row(
-                Label: $"{group.Id} ({group.ChatTag ?? "-"})",
-                Value: $"Öncelik: {group.Priority} | Üye: {group.Members.Count}",
-                Style: group.Enabled ? RowStyle.Normal : RowStyle.Off,
-                OnSelect: a => _sessions[a.Slot].Push(_ => BuildEntryEditPage(group, $"Grup: {group.Id}", onDelete: () =>
-                {
-                    _config.Groups.Remove(group);
-                    SaveAndApply();
-                }))));
-        }
-
-        return new Page
-        {
-            Title = "Yetki Grupları",
-            Subtitle = "Öncelik sırasına göre listelenir",
-            Rows = rows
-        };
-    }
-
-    private void StartCreateGroupFlow(IPlayer admin)
-    {
-        PromptInput(admin, "Yeni grubun ID'sini yazın (örn: mod, rehber, supervip):", (adm, rawId) =>
-        {
-            var id = rawId.Trim().ToLowerInvariant().Replace(' ', '_');
-            if (string.IsNullOrWhiteSpace(id) || _config.Groups.Any(g => g.Id.Equals(id, StringComparison.OrdinalIgnoreCase)))
-            {
-                _service.Reply(adm, $"[red]'{id}' geçersiz veya zaten mevcut.[default]");
-                return;
-            }
-
-            var tagText = $"[{id.ToUpperInvariant()}]";
-            var group = new GroupData
-            {
-                Id = id,
-                DisplayName = id.ToUpperInvariant(),
-                Permissions = new List<string> { id, $"tagsystem.{id}" },
-                ChatTag = tagText,
-                ScoreboardTag = id.ToUpperInvariant(),
-                ChatTagColor = "gold",
-                NameColor = "gold",
-                Priority = 50,
-                Enabled = true
-            };
-            _config.Groups.Add(group);
-            SaveAndApply();
-            _service.Reply(adm, $"[lime]'{id}'[default] grubu oluşturuldu! Şimdi detaylarını düzenleyebilirsiniz.");
-            if (_sessions.TryGetValue(adm.Slot, out var s))
-                s.Push(_ => BuildEntryEditPage(group, $"Grup: {group.Id}", onDelete: () =>
-                {
-                    _config.Groups.Remove(group);
-                    SaveAndApply();
-                }));
-        });
-    }
-
-    private Page BuildEntryEditPage(TagEntry entry, string title, Action? onDelete = null)
-    {
-        var rows = new List<Row>
-        {
-            new("Durum", entry.Enabled ? "AKTİF" : "KAPALI", Arrows: true,
-                Style: entry.Enabled ? RowStyle.On : RowStyle.Off,
-                OnAdjust: (_, _) => { entry.Enabled = !entry.Enabled; SaveAndApply(); }),
-
-            new("💬 Chat Etiketi (Yazmak için E)", entry.ChatTag ?? "(boş)", Style: RowStyle.Accent,
-                OnSelect: a => PromptInput(a, "Yeni Chat Etiketini yazın (örn: [VIP]):", (adm, val) =>
-                {
-                    entry.ChatTag = val;
-                    SaveAndApply();
-                    _service.Reply(adm, $"Chat etiketi [lime]{val}[default] olarak güncellendi.");
-                })),
-
-            new("📋 Scoreboard / Clan Tag (Yazmak için E)", string.IsNullOrEmpty(entry.ScoreboardTag) ? "(boş)" : entry.ScoreboardTag, Style: RowStyle.Accent,
-                OnSelect: a => PromptInput(a, "Yeni Scoreboard Etiketini yazın (boş bırakmak için - yazın):", (adm, val) =>
-                {
-                    entry.ScoreboardTag = val == "-" ? "" : TagService.StripOuterBrackets(val);
-                    SaveAndApply();
-                    _service.Reply(adm, $"Scoreboard etiketi [lime]{entry.ScoreboardTag}[default] olarak güncellendi.");
-                })),
-
-            BuildFrameRow("👑 Çerçeve / Sembol", () => entry.Frame, v => { entry.Frame = v; SaveAndApply(); }),
-
-            BuildColorRow("🎨 Etiket Rengi", () => entry.ChatTagColor ?? "gold", v => { entry.ChatTagColor = v; SaveAndApply(); }),
-            BuildColorRow("🎨 İsim Rengi", () => entry.NameColor ?? "teamcolor", v => { entry.NameColor = v; SaveAndApply(); }),
-            BuildColorRow("🎨 Mesaj Rengi", () => entry.MessageColor ?? "default", v => { entry.MessageColor = v; SaveAndApply(); }),
-
-            new("🔢 Öncelik (Priority)", entry.Priority.ToString(), Arrows: true, Style: RowStyle.Accent,
-                OnAdjust: (_, dir) => { entry.Priority += dir * 10; SaveAndApply(); },
-                OnSelect: a => PromptInput(a, "Öncelik sayısını yazın (örn: 100):", (adm, val) =>
-                {
-                    if (int.TryParse(val, out var p)) { entry.Priority = p; SaveAndApply(); }
-                }))
-        };
-
-        if (entry is GroupData g)
-        {
-            var perms = g.Permissions.Count > 0 ? string.Join(", ", g.Permissions) : "(yok)";
-            rows.Add(new Row("🔑 Yetkiler (Yazmak için E)", perms, Style: RowStyle.Accent,
-                OnSelect: a => PromptInput(a, "Yetki anahtarını yazın (birden fazlaysa virgülle ayırın):", (adm, val) =>
-                {
-                    g.Permissions = val.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
-                    SaveAndApply();
-                    _service.Reply(adm, $"Grup yetkileri güncellendi: [lime]{string.Join(", ", g.Permissions)}[default]");
-                })));
-        }
-
-        if (entry != _config.Default)
-        {
-            int curTeamIdx = GetTeamPresetIndex(entry.Teams);
-            rows.Add(new Row("🚩 Takım Kısıtlaması", TeamPresetLabels[curTeamIdx], Arrows: true,
-                OnAdjust: (_, dir) =>
-                {
-                    int next = ((curTeamIdx + dir) % TeamPresets.Length + TeamPresets.Length) % TeamPresets.Length;
-                    entry.Teams = TeamPresets[next].ToList();
-                    SaveAndApply();
-                }));
-        }
-
-        if (onDelete != null)
-        {
-            rows.Add(new Row("🗑️ Bu Kaydı Sil", Style: RowStyle.Danger,
-                OnSelect: a =>
-                {
-                    onDelete();
-                    _service.Reply(a, "[red]Kayıt silindi.[default]");
-                    if (_sessions.TryGetValue(a.Slot, out var s)) s.Back();
-                }));
-        }
-
-        return new Page
-        {
-            Title = title,
-            Subtitle = $"Chat: {entry.ChatTag ?? "-"} | Clan: {entry.ScoreboardTag ?? "-"}",
-            Rows = rows
-        };
-    }
-
-    private Page BuildSettingsPage(IPlayer admin)
-    {
-        var s = _config.Settings;
-        var c = _config.Chat;
-        return new Page
-        {
-            Title = "Genel Ayarlar",
-            Subtitle = "Değişiklikler anında kaydedilir",
-            Rows =
-            {
-                new Row("Scoreboard (Clan Tag)", s.EnableScoreboardTag ? "AÇIK" : "KAPALI", Arrows: true,
-                    Style: s.EnableScoreboardTag ? RowStyle.On : RowStyle.Off,
-                    OnAdjust: (_, _) =>
-                    {
-                        s.EnableScoreboardTag = !s.EnableScoreboardTag;
-                        SaveAndApply();
-                        if (!s.EnableScoreboardTag) _service.RestoreScoreboardAll();
-                    }),
-                new Row("Chat Formatlama", s.EnableChatTag ? "AÇIK" : "KAPALI", Arrows: true,
-                    Style: s.EnableChatTag ? RowStyle.On : RowStyle.Off,
-                    OnAdjust: (_, _) => { s.EnableChatTag = !s.EnableChatTag; SaveAndApply(); }),
-                new Row("Yetki Sistemi (use_permissions)", s.UsePermissions ? "AÇIK" : "KAPALI", Arrows: true,
-                    Style: s.UsePermissions ? RowStyle.On : RowStyle.Off,
-                    OnAdjust: (_, _) => { s.UsePermissions = !s.UsePermissions; SaveAndApply(); }),
-                new Row("Ölüler Sadece Ölülere Yazsın", c.DeadTalkOnlyToDead ? "AÇIK" : "KAPALI", Arrows: true,
-                    Style: c.DeadTalkOnlyToDead ? RowStyle.On : RowStyle.Off,
-                    OnAdjust: (_, _) => { c.DeadTalkOnlyToDead = !c.DeadTalkOnlyToDead; SaveAndApply(); }),
-                new Row("Botlara Etiket Uygula", s.ApplyToBots ? "AÇIK" : "KAPALI", Arrows: true,
-                    Style: s.ApplyToBots ? RowStyle.On : RowStyle.Off,
-                    OnAdjust: (_, _) => { s.ApplyToBots = !s.ApplyToBots; SaveAndApply(); })
-            }
-        };
-    }
-
-    private static Row BuildColorRow(string label, Func<string> get, Action<string> set)
-    {
-        var cur = get();
-        int idx = Array.FindIndex(ColorCycle, c => c.Equals(cur, StringComparison.OrdinalIgnoreCase));
-        if (idx < 0) idx = 0;
-
-        return new Row(label, ColorCycle[idx], Arrows: true, Style: RowStyle.Accent,
-            OnAdjust: (_, dir) =>
-            {
-                int next = ((idx + dir) % ColorCycle.Length + ColorCycle.Length) % ColorCycle.Length;
-                set(ColorCycle[next]);
-            });
-    }
-
-    private static Row BuildFrameRow(string label, Func<string?> get, Action<string?> set)
-    {
-        var cur = get() ?? "none";
-        int idx = Array.FindIndex(FrameCycle, f => f.Equals(cur, StringComparison.OrdinalIgnoreCase));
-        if (idx < 0) idx = 0;
-
-        var display = PlaceholderHelper.AvailableFrames[idx].Name;
-        return new Row(label, display, Arrows: true, Style: RowStyle.Accent,
-            OnAdjust: (_, dir) =>
-            {
-                int next = ((idx + dir) % FrameCycle.Length + FrameCycle.Length) % FrameCycle.Length;
-                set(FrameCycle[next] == "none" ? null : FrameCycle[next]);
-            });
+        if (string.IsNullOrWhiteSpace(frame)) return 0;
+        int idx = Array.FindIndex(FrameOptions, f => f.Key.Equals(frame, StringComparison.OrdinalIgnoreCase));
+        return idx < 0 ? 0 : idx;
     }
 
     private static int GetTeamPresetIndex(List<string> teams)
@@ -889,5 +1081,67 @@ public sealed class TagAdminMenu
             if (teams[0].Equals("SPEC", StringComparison.OrdinalIgnoreCase)) return 3;
         }
         return 0;
+    }
+
+    private static string SafeMenuText(string? text, int maxLen = 28, string fallback = "")
+    {
+        if (string.IsNullOrWhiteSpace(text)) return fallback;
+        var clean = ColorHelper.StripAll(text)
+            .Replace("<", "")
+            .Replace(">", "")
+            .Replace("\r", " ")
+            .Replace("\n", " ")
+            .Trim();
+        if (clean.Length == 0) return fallback;
+        return clean.Length > maxLen ? clean[..maxLen] + "..." : clean;
+    }
+
+    private static void ReplaceRows(IMenu menu, PageState page, IReadOnlyList<IMenuComponent> rows)
+    {
+        foreach (var row in page.Rows)
+            menu.Remove(row);
+        page.Rows.Clear();
+
+        for (int i = 0; i < rows.Count; i++)
+        {
+            menu.Insert(MenuRegion.Body, page.RowsAt + i, rows[i]);
+            page.Rows.Add(rows[i]);
+        }
+    }
+
+    private static void RestoreFocus(IMenuSession session, PageState page)
+    {
+        if (page.FocusKey is { } key && FocusWhere(session, c => c is MenuComponentBase { Tag: { } tag } && tag.Equals(key)))
+            return;
+
+        if (page.Focus is { } focus)
+        {
+            for (int i = focus; i > 0; i--)
+            {
+                if (session.FocusedIndex == i || session.SetFocus(i))
+                    return;
+            }
+        }
+    }
+
+    private static bool FocusWhere(IMenuSession session, Func<IMenuComponent, bool> match)
+    {
+        int index = 0;
+        foreach (var component in session.Menu.GetComponents(MenuRegion.Body))
+        {
+            if (!component.IsFocusable || !component.IsVisible(session))
+                continue;
+
+            if (match(component))
+            {
+                if (session.FocusedIndex != index)
+                    session.SetFocus(index);
+                return true;
+            }
+
+            index++;
+        }
+
+        return false;
     }
 }

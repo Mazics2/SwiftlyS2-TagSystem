@@ -1,10 +1,9 @@
-using MenuApi.API;
 using Microsoft.Extensions.Logging;
-using PanoramaHud.Contract;
 using SwiftlyS2.Shared;
 using SwiftlyS2.Shared.Commands;
 using SwiftlyS2.Shared.Events;
 using SwiftlyS2.Shared.GameEventDefinitions;
+using SwiftlyS2.Shared.Menu.Components;
 using SwiftlyS2.Shared.Misc;
 using SwiftlyS2.Shared.Players;
 using SwiftlyS2.Shared.Plugins;
@@ -29,10 +28,6 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
     private TagManager? _tagManager;
     private TagService? _tagService;
     private TagAdminMenu? _adminMenu;
-    private IMenuApi? _menuApi;
-    private IPanoramaHudApi? _hudApi;
-    private IHudScope? _hudScope;
-    private TagPanoramaMenu? _panoramaMenu;
 
     private readonly List<Guid> _commandGuids = [];
     private readonly List<Guid> _gameEventGuids = [];
@@ -58,20 +53,11 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
 
         _tagManager = new TagManager(Core, _config);
         _tagService = new TagService(Core, _config, _tagManager);
-        _adminMenu = new TagAdminMenu(Core, _configLoader, _config, _tagManager, _tagService)
-        {
-            MenuApi = _menuApi
-        };
+        _adminMenu = new TagAdminMenu(Core, _configLoader, _config, _tagManager, _tagService);
 
         RegisterCommands();
         RegisterEvents();
         StartRefreshTimer();
-
-        if (_hudScope != null && _hudApi != null && _panoramaMenu == null)
-        {
-            _panoramaMenu = new TagPanoramaMenu(Core, _hudScope, _hudApi, _configLoader, _config, _tagManager, _tagService);
-            _panoramaMenu.BuildMenus();
-        }
 
         if (hotReload)
         {
@@ -83,36 +69,9 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
             _config.Groups.Count, _config.Players.Count, _config.Commands.MenuCommand);
     }
 
-    public override void UseSharedInterface(IInterfaceManager interfaceManager)
-    {
-        if (interfaceManager.HasSharedInterface("MenuApi"))
-        {
-            try
-            {
-                _menuApi = interfaceManager.GetSharedInterface<IMenuApi>("MenuApi");
-                if (_adminMenu != null)
-                {
-                    _adminMenu.MenuApi = _menuApi;
-                }
-                Core.Logger.LogInformation("[TagSystem] SwiftlyS2-MenuApi arayüzü bağlandı.");
-            }
-            catch (Exception ex)
-            {
-                Core.Logger.LogError(ex, "[TagSystem] SwiftlyS2-MenuApi bağlanırken hata oluştu.");
-            }
-        }
-        else
-        {
-            _menuApi = null;
-            if (_adminMenu != null) _adminMenu.MenuApi = null;
-        }
-    }
-
     public override void Unload()
     {
         StopRefreshTimer();
-        _panoramaMenu?.Dispose();
-        _hudScope?.Dispose();
         _adminMenu?.CloseAll();
         UnregisterEvents();
         UnregisterCommands();
@@ -150,7 +109,6 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
         _tagManager.UpdateConfig(_config);
         _tagService.UpdateConfig(_config);
         _adminMenu?.UpdateConfig(_config);
-        _panoramaMenu?.UpdateConfig(_config);
         _tagService.ApplyScoreboardAll(force: true);
     }
 
@@ -160,7 +118,6 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
     {
         _chatHookGuid = Core.Command.HookClientChat(OnClientChat);
 
-        Core.Event.OnTick += OnTick;
         Core.Event.OnClientPutInServer += OnClientPutInServer;
         Core.Event.OnClientSteamAuthorize += OnClientSteamAuthorize;
         Core.Event.OnClientDisconnected += OnClientDisconnected;
@@ -178,7 +135,6 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
             _chatHookGuid = Guid.Empty;
         }
 
-        Core.Event.OnTick -= OnTick;
         Core.Event.OnClientPutInServer -= OnClientPutInServer;
         Core.Event.OnClientSteamAuthorize -= OnClientSteamAuthorize;
         Core.Event.OnClientDisconnected -= OnClientDisconnected;
@@ -207,19 +163,11 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
         _refreshTimer = null;
     }
 
-    private void OnTick()
-    {
-        _adminMenu?.OnTick();
-        _panoramaMenu?.OnTick();
-    }
-
     private HookResult OnClientChat(int playerId, string text, bool teamOnly)
     {
-        if (_panoramaMenu != null && _panoramaMenu.TryConsumeChatInput(playerId, text))
-            return HookResult.CancelOriginal;
-
-        if (_adminMenu != null && _adminMenu.TryConsumeChatInput(playerId, text))
-            return HookResult.CancelOriginal;
+        var player = Core.PlayerManager.GetPlayer(playerId);
+        if (PlayerHelper.IsUsable(player) && Core.Menu.GetSession(player!)?.FocusedComponent is InputComponent)
+            return HookResult.Continue;
 
         // Sessiz TagSystem komutu ise (/tagmenu vb.): sohbette gostermeden calistir ve orijinali iptal et.
         if (IsSilentTagSystemCommand(text) && TryHandleFallbackChatCommand(playerId, text))
@@ -266,7 +214,6 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
     private void OnClientDisconnected(IOnClientDisconnectedEvent e)
     {
         _lastCmdTime.Remove(e.PlayerId);
-        _panoramaMenu?.OnPlayerDisconnected(e.PlayerId);
         _adminMenu?.OnPlayerDisconnected(e.PlayerId);
         _tagService?.OnPlayerDisconnected(e.PlayerId);
     }
@@ -274,7 +221,6 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
     private void OnMapLoad(IOnMapLoadEvent e)
     {
         _lastCmdTime.Clear();
-        _panoramaMenu?.OnMapLoad();
         _adminMenu?.CloseAll();
         _tagService?.OnMapChanged();
     }
@@ -509,16 +455,6 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
     private void ExecuteMenuCommand(IPlayer admin)
     {
         if (!CheckCallerPermission(admin)) return;
-        if (_adminMenu != null && _adminMenu.MenuApi != null)
-        {
-            _adminMenu.Open(admin);
-            return;
-        }
-        if (_panoramaMenu != null && _panoramaMenu.IsAvailable)
-        {
-            _panoramaMenu.Open(admin);
-            return;
-        }
         _adminMenu?.Toggle(admin);
     }
 
@@ -710,7 +646,6 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
             _tagManager.UpdateConfig(_config);
             _tagService.UpdateConfig(_config);
             _adminMenu?.UpdateConfig(_config);
-            _panoramaMenu?.UpdateConfig(_config);
 
             RegisterCommands();
             StartRefreshTimer();
