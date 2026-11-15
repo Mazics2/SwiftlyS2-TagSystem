@@ -58,6 +58,7 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
         RegisterCommands();
         RegisterEvents();
         StartRefreshTimer();
+        _tagService.EnsureClanTagsEnabled();
 
         if (hotReload)
         {
@@ -125,6 +126,7 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
 
         _gameEventGuids.Add(Core.GameEvent.HookPost<EventPlayerSpawn>(OnPlayerSpawn));
         _gameEventGuids.Add(Core.GameEvent.HookPost<EventPlayerTeam>(OnPlayerTeam));
+        _gameEventGuids.Add(Core.GameEvent.HookPost<EventRoundStart>(OnRoundStart));
     }
 
     private void UnregisterEvents()
@@ -207,7 +209,7 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
             var player = Core.PlayerManager.GetPlayer(playerId);
             if (!PlayerHelper.IsUsable(player)) return;
             _tagManager?.Invalidate(player!.Slot);
-            _tagService?.ApplyScoreboard(player);
+            _tagService?.ApplyScoreboard(player, force: true);
         });
     }
 
@@ -223,6 +225,13 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
         _lastCmdTime.Clear();
         _adminMenu?.CloseAll();
         _tagService?.OnMapChanged();
+        Core.Scheduler.NextTick(() => _tagService?.EnsureClanTagsEnabled());
+    }
+
+    private HookResult OnRoundStart(EventRoundStart e)
+    {
+        Core.Scheduler.NextTick(() => _tagService?.ApplyScoreboardAll(force: true));
+        return HookResult.Continue;
     }
 
     private HookResult OnPlayerSpawn(EventPlayerSpawn e)
@@ -234,7 +243,7 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
             Core.Scheduler.NextTick(() =>
             {
                 var p = Core.PlayerManager.GetPlayer(slot);
-                _tagService?.ApplyScoreboard(p);
+                _tagService?.ApplyScoreboard(p, force: true);
             });
         }
         return HookResult.Continue;
@@ -251,7 +260,7 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
                 var p = Core.PlayerManager.GetPlayer(slot);
                 if (!PlayerHelper.IsUsable(p)) return;
                 _tagManager?.Invalidate(p!.Slot);
-                _tagService?.ApplyScoreboard(p);
+                _tagService?.ApplyScoreboard(p, force: true);
             });
         }
         return HookResult.Continue;
@@ -700,11 +709,13 @@ public class Plugin(ISwiftlyCore core) : BasePlugin(core)
         var resolved = _tagManager.Resolve(target);
         var matches = _tagManager.GetMatchingEntries(target!);
         var sbText = _tagService.BuildScoreboardText(target, resolved);
+        var actualClan = PlayerHelper.GetController(target)?.Clan ?? string.Empty;
+        var cvarOn = _tagService.IsClanTagsConvarEnabled();
 
         SendOutput(caller, ctx,
             $"Oyuncu: [lime]{PlayerHelper.GetName(target)}[default] | SteamID: [gold]{SteamIdHelper.ToSteam2(sid)}[default] ({sid}) | Takım: {PlayerHelper.GetTeam(target)}");
         SendOutput(caller, ctx,
-            $"Uygulanan: [lime]{resolved.Label}[default] (id: {resolved.SourceId}, öncelik: {resolved.Priority}) | Clan: '{sbText}'");
+            $"Uygulanan: [lime]{resolved.Label}[default] (id: {resolved.SourceId}, öncelik: {resolved.Priority}) | Hedef Clan: '{sbText}' | Gerçek Clan: '{actualClan}' | sv_clantags_enabled: {(cvarOn ? "1" : "0")}");
         SendOutput(caller, ctx,
             $"Eşleşen tanımlar ({matches.Count}): " + string.Join(", ", matches.Select(e => $"{e.Id}[{e.Priority}]")));
     }

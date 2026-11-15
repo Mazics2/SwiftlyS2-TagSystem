@@ -64,7 +64,7 @@ public class TagService
 
             _appliedClan[slot] = target;
 
-            if (!string.Equals(current, target, StringComparison.Ordinal))
+            if (force || !string.Equals(current, target, StringComparison.Ordinal))
             {
                 controller.Clan = target;
                 controller.ClanUpdated();
@@ -76,8 +76,40 @@ public class TagService
         }
     }
 
+    public void EnsureClanTagsEnabled()
+    {
+        if (!_config.Settings.EnableScoreboardTag) return;
+        try
+        {
+            var cvar = _core.ConVar.Find<bool>("sv_clantags_enabled");
+            if (cvar != null && !cvar.Value)
+            {
+                cvar.Value = true;
+                _core.Logger.LogInformation("[TagSystem] sv_clantags_enabled=1 olarak açıldı (scoreboard tagları için gerekli).");
+            }
+        }
+        catch (Exception ex)
+        {
+            if (_config.Settings.Debug) _core.Logger.LogWarning(ex, "[TagSystem] sv_clantags_enabled kontrol edilemedi.");
+        }
+    }
+
+    public bool IsClanTagsConvarEnabled()
+    {
+        try
+        {
+            var cvar = _core.ConVar.Find<bool>("sv_clantags_enabled");
+            return cvar?.Value ?? true;
+        }
+        catch
+        {
+            return true;
+        }
+    }
+
     public void ApplyScoreboardAll(bool force = false)
     {
+        EnsureClanTagsEnabled();
         foreach (var p in _core.PlayerManager.GetAllPlayers())
             ApplyScoreboard(p, force);
     }

@@ -103,7 +103,7 @@ public sealed class TagAdminMenu
             if (string.IsNullOrEmpty(token))
                 return node;
 
-            var raw = new MenuRawNode("customhud.panorama", $"swatch={token}");
+            var raw = new MenuRawNode("customhud.panorama", $"glyph=colors;swatch={token}");
             return node is MenuLineNode line
                 ? line with { Children = [.. line.Children, raw] }
                 : MenuLineNode.Of(node, raw);
@@ -120,7 +120,7 @@ public sealed class TagAdminMenu
         public override MenuNode Render(IMenuComponentRenderContext context)
         {
             var node = base.Render(context);
-            var raw = new MenuRawNode("customhud.panorama", "danger");
+            var raw = new MenuRawNode("customhud.panorama", "glyph=cancel;danger;verb=open");
             return node is MenuLineNode line
                 ? line with { Children = [.. line.Children, raw] }
                 : MenuLineNode.Of(node, raw);
@@ -265,44 +265,79 @@ public sealed class TagAdminMenu
 
         mainMenu = _core.Menu.CreateMenu("tagsystem.main")
             .WithTitle("TAGSYSTEM YÖNETİM")
-            .AddHeader(new TextComponent
+            .AddHeader(new HudTextComponent
+            {
+                TextProvider = _ => $"{_config.Groups.Count}\tGrup",
+                HudDirective = "chip=gold;glyph=shield"
+            })
+            .AddHeader(new HudTextComponent
+            {
+                TextProvider = _ => $"{_config.Players.Count}\tÖzel Oyuncu",
+                HudDirective = "chip=info;glyph=crown"
+            })
+            .AddHeader(new HudTextComponent
             {
                 TextProvider = session =>
                 {
                     var resolved = _manager.Resolve(session.Player);
-                    return $"{_config.Groups.Count} grup • {_config.Players.Count} özel • Etiket: {SafeMenuText(resolved.Label, 18)}";
-                }
+                    return $"{SafeMenuText(resolved.Label, 16, "-")}\tAktif Etiketin";
+                },
+                HudDirective = "chip=good;glyph=tag"
             })
-            .Add(new SubmenuComponent("Oyuncuya Etiket / Grup Ver", playersMenu, "players")
+            .AddHeader(new HudTextComponent("Yönetmek istediğiniz bölümü seçin — değişiklikler anında uygulanır")
+            {
+                HudDirective = "hint"
+            })
+            .Add(new HudSubmenuComponent("Oyuncuya Etiket / Grup Ver", playersMenu, "players")
             {
                 TextProvider = _ =>
                 {
                     int onlineCount = _core.PlayerManager.GetAllPlayers()
                         .Count(p => PlayerHelper.IsUsable(p) && (!p!.IsFakeClient || _config.Settings.ApplyToBots));
                     return $"Oyuncuya Etiket / Grup Ver\t{onlineCount} aktif";
-                }
+                },
+                HudDirective = "glyph=teamplayer;sub=Sunucudaki oyunculara özel etiket veya grup atayın;verb=open"
             })
-            .Add(new SubmenuComponent("Özel Oyuncu Etiketleri", customPlayersMenu, "custom_players")
+            .Add(new HudSubmenuComponent("Özel Oyuncu Etiketleri", customPlayersMenu, "custom_players")
             {
-                TextProvider = _ => $"Özel Oyuncu Etiketleri\t{_config.Players.Count}"
+                TextProvider = _ => $"Özel Oyuncu Etiketleri\t{_config.Players.Count}",
+                HudDirective = "glyph=crown;sub=SteamID bazlı kayıtlı kişisel etiketleri düzenleyin;verb=open"
             })
-            .Add(new SubmenuComponent("Yetki Gruplarını Yönet", groupsMenu, "groups")
+            .Add(new HudSubmenuComponent("Yetki Gruplarını Yönet", groupsMenu, "groups")
             {
-                TextProvider = _ => $"Yetki Gruplarını Yönet\t{_config.Groups.Count}"
+                TextProvider = _ => $"Yetki Gruplarını Yönet\t{_config.Groups.Count}",
+                HudDirective = "glyph=shield;sub=VIP, Admin ve özel yetki gruplarını düzenleyin;verb=open"
             })
             .Add(createGroupInput)
-            .Add(new SubmenuComponent("Varsayılan [default] Etiket",
+            .Add(new HudSubmenuComponent("Varsayılan [default] Etiket",
                 _ => BuildEntryEditMenu(ownerSlot, _config.Default, "Varsayılan [default]", null, mainMenu), "default_tag")
             {
-                TextProvider = _ => $"Varsayılan [default] Etiket\t{SafeMenuText(_config.Default.ChatTag, 16, "-")}"
+                TextProvider = _ => $"Varsayılan [default] Etiket\t{SafeMenuText(_config.Default.ChatTag, 16, "-")}",
+                HudDirective = "glyph=tag;sub=Grubu olmayan tüm oyunculara uygulanan temel etiket;verb=edit"
             })
-            .Add(new SubmenuComponent("Genel Ayarlar", settingsMenu, "settings"))
-            .Add(new ButtonComponent("Sohbete Canlı Test Mesajı At", ctx =>
+            .Add(new HudSubmenuComponent("Genel Ayarlar", settingsMenu, "settings")
+            {
+                HudDirective = "glyph=legend;sub=Scoreboard, chat, yetki ve bot ayarlarını yönetin;verb=open"
+            })
+            .Add(new HudButtonComponent("Sohbete Canlı Test Mesajı At", ctx =>
             {
                 _service.SendTestChat(ctx.Player, null, "TagSystem canlı renkli chat önizlemesi!");
                 _service.Reply(ctx.Player, "Renkli test sohbet satırı chat kutunuza gönderildi.");
                 return ValueTask.CompletedTask;
-            }))
+            })
+            {
+                HudDirective = "glyph=chat;primary;sub=Kendi aktif etiketinizle sohbete test satırı gönderir;verb=select"
+            })
+            .Add(new HudButtonComponent("Skorboard Taglarını Yenile", ctx =>
+            {
+                _service.EnsureClanTagsEnabled();
+                _service.ApplyScoreboardAll(force: true);
+                _service.Reply(ctx.Player, "[lime]Tüm oyuncuların skorboard (clan) tagları yeniden senkronize edildi.[default]");
+                return ValueTask.CompletedTask;
+            })
+            {
+                HudDirective = "glyph=refresh;sub=Tüm aktif oyuncuların TAB clan taglarını zorla günceller;verb=apply"
+            })
             .Build();
 
         return Track(ownerSlot, mainMenu);
@@ -317,7 +352,10 @@ public sealed class TagAdminMenu
 
         var builder = _core.Menu.CreateMenu("tagsystem.players")
             .WithTitle("OYUNCU SEÇİN")
-            .AddHeader(new TextComponent("Etiket veya grup atamak istediğiniz oyuncuyu seçin"));
+            .AddHeader(new HudTextComponent("Etiket veya grup atamak için bir oyuncuya tıklayın")
+            {
+                HudDirective = "hint"
+            });
 
         playersMenu = Track(ownerSlot, builder.Build());
 
@@ -333,30 +371,47 @@ public sealed class TagAdminMenu
                 var sid = PlayerHelper.GetSteamId64(target);
                 var name = PlayerHelper.GetName(target);
                 var safeName = SafeMenuText(name, 22, "Oyuncu");
+                var team = PlayerHelper.GetTeam(target);
+                var teamTone = team switch
+                {
+                    "CT" => "ct",
+                    "T" => "t",
+                    _ => "faint"
+                };
                 var resolved = _manager.Resolve(target);
+                var tagLabel = HudMenuNodeHelper.CleanValue(SafeMenuText(resolved.Label, 14, "-"), 18);
                 string badge = $"{SafeMenuText(resolved.Label, 14, "-")} ({SafeMenuText(resolved.SourceId, 12)})";
 
                 if (sid == 0)
                 {
-                    rows.Add(new ButtonComponent($"{safeName}\tSteamID Yok", ctx =>
+                    rows.Add(new HudButtonComponent($"{safeName}\tSteamID Yok", ctx =>
                     {
                         _service.Reply(ctx.Player, "[red]Bu oyuncunun SteamID doğrulaması henüz tamamlanmamış.[default]");
                         return ValueTask.CompletedTask;
-                    }));
+                    })
+                    {
+                        HudDirective = $"avatar;sub=Steam doğrulaması bekleniyor;badge={team};badgetone={teamTone};note=Yetkisiz;notetone=bad"
+                    });
                 }
                 else
                 {
-                    rows.Add(new SubmenuComponent($"{safeName}\t{badge}",
+                    var steam2 = SteamIdHelper.ToSteam2(sid);
+                    var tagTone = resolved.SourceId == "default" ? "faint" : "gold";
+                    rows.Add(new HudSubmenuComponent($"{safeName}\t{badge}",
                         _ => BuildManagePlayerMenu(ownerSlot, sid, name))
                     {
-                        Tag = sid
+                        Tag = sid,
+                        HudDirective = $"avatar;sub={steam2};badge={team};badgetone={teamTone};tag={tagLabel};tagtone={tagTone};verb=open"
                     });
                 }
             }
 
             if (rows.Count == 0)
             {
-                rows.Add(new TextComponent("Aktif oyuncu yok"));
+                rows.Add(new HudTextComponent("Aktif oyuncu yok")
+                {
+                    HudDirective = "glyph=player;tone=faint"
+                });
             }
 
             ReplaceRows(playersMenu, page, rows);
@@ -386,17 +441,20 @@ public sealed class TagAdminMenu
         var page = new PageState { RowsAt = 1 };
         IMenu? playerMenu = null;
 
-        var testBtn = new ButtonComponent("Bu Oyuncu Adına Test Mesajı At", ctx =>
+        var testBtn = new HudButtonComponent("Bu Oyuncu Adına Test Mesajı At", ctx =>
         {
             var custom = _config.Players.FirstOrDefault(p => p.SteamId64 == steamId);
             _service.SendTestChat(ctx.Player, custom, $"{displayName} adına test chat satırı!");
             _service.Reply(ctx.Player, $"{safeName} için test chat satırı sohbete gönderildi.");
             return ValueTask.CompletedTask;
-        });
+        })
+        {
+            HudDirective = "glyph=chat;primary;sub=Oyuncunun aktif etiketiyle sohbete önizleme gönderir;verb=select"
+        };
 
         var builder = _core.Menu.CreateMenu("tagsystem.player")
             .WithTitle($"OYUNCU: {safeName}")
-            .AddHeader(new TextComponent
+            .AddHeader(new HudTextComponent
             {
                 TextProvider = _ =>
                 {
@@ -406,8 +464,17 @@ public sealed class TagAdminMenu
                     var res = targetPlayer != null
                         ? _manager.Resolve(targetPlayer)
                         : (custom != null ? _manager.BuildResolvedTag(custom) : _manager.BuildResolvedTag(_config.Default));
-                    return $"{steam2} • Aktif: {SafeMenuText(res.Label, 18, "-")}";
-                }
+                    return $"{SafeMenuText(res.Label, 16, "-")}\tAktif Etiket";
+                },
+                HudDirective = "chip=gold;glyph=tag"
+            })
+            .AddHeader(new HudTextComponent($"{steam2}\tSteamID")
+            {
+                HudDirective = "chip=info;glyph=player"
+            })
+            .AddHeader(new HudTextComponent("Özel etiket verin veya grup üyeliklerini açıp kapatın")
+            {
+                HudDirective = "hint"
             })
             .Add(testBtn);
 
@@ -501,7 +568,8 @@ public sealed class TagAdminMenu
             {
                 var group = g;
                 bool isMember = group.Members.Contains(steamId);
-                rows.Add(new ToggleComponent(
+                var grpTag = HudMenuNodeHelper.CleanValue(SafeMenuText(group.ChatTag, 14, "-"), 16);
+                rows.Add(new HudToggleComponent(
                     $"Grup: {SafeMenuText(group.Label, 16)} ({SafeMenuText(group.Id, 12)})",
                     isMember,
                     change =>
@@ -521,7 +589,8 @@ public sealed class TagAdminMenu
                     })
                 {
                     DefaultValueProvider = _ => group.Members.Contains(steamId),
-                    Tag = $"grp:{group.Id}"
+                    Tag = $"grp:{group.Id}",
+                    HudDirective = $"glyph=shield;sub=Etiket: {grpTag} • Öncelik: {group.Priority};verb=switch"
                 });
             }
 
@@ -552,9 +621,14 @@ public sealed class TagAdminMenu
 
         var builder = _core.Menu.CreateMenu("tagsystem.custom_players")
             .WithTitle("ÖZEL OYUNCU ETİKETLERİ")
-            .AddHeader(new TextComponent
+            .AddHeader(new HudTextComponent
             {
-                TextProvider = _ => $"{_config.Players.Count} kayıtlı özel oyuncu • Düzenlemek için seçin"
+                TextProvider = _ => $"{_config.Players.Count}\tKayıtlı Oyuncu",
+                HudDirective = "chip=info;glyph=crown"
+            })
+            .AddHeader(new HudTextComponent("Düzenlemek veya silmek istediğiniz özel oyuncu kaydını seçin")
+            {
+                HudDirective = "hint"
             });
 
         listMenu = Track(ownerSlot, builder.Build());
@@ -568,8 +642,9 @@ public sealed class TagAdminMenu
                 var steam2 = SteamIdHelper.ToSteam2(entry.SteamId64);
                 var rawLabel = !string.IsNullOrWhiteSpace(entry.DisplayName) ? $"{entry.DisplayName} ({steam2})" : steam2;
                 var safeLabel = SafeMenuText(rawLabel, 24, steam2);
+                var chatTagClean = HudMenuNodeHelper.CleanValue(SafeMenuText(entry.ChatTag, 16, "-"), 18);
 
-                rows.Add(new SubmenuComponent(
+                rows.Add(new HudSubmenuComponent(
                     $"{safeLabel}\t{SafeMenuText(entry.ChatTag, 16, "-")}",
                     _ => BuildEntryEditMenu(ownerSlot, entry, safeLabel, () =>
                     {
@@ -577,13 +652,17 @@ public sealed class TagAdminMenu
                         SaveAndApply();
                     }, listMenu))
                 {
-                    Tag = entry.Id
+                    Tag = entry.Id,
+                    HudDirective = $"avatar;sub={steam2};tag={chatTagClean};tagtone=gold;note=P:{entry.Priority};notetone=faint;verb=edit"
                 });
             }
 
             if (rows.Count == 0)
             {
-                rows.Add(new TextComponent("Kayıtlı özel oyuncu yok"));
+                rows.Add(new HudTextComponent("Kayıtlı özel oyuncu yok")
+                {
+                    HudDirective = "glyph=crown;tone=faint"
+                });
             }
 
             ReplaceRows(listMenu, page, rows);
@@ -615,7 +694,15 @@ public sealed class TagAdminMenu
 
         var builder = _core.Menu.CreateMenu("tagsystem.groups")
             .WithTitle("YETKİ GRUPLARI")
-            .AddHeader(new TextComponent("Öncelik sırasına göre listelenir"))
+            .AddHeader(new HudTextComponent
+            {
+                TextProvider = _ => $"{_config.Groups.Count}\tGrup",
+                HudDirective = "chip=gold;glyph=shield"
+            })
+            .AddHeader(new HudTextComponent("Öncelik sırasına göre listelenir — düzenlemek için tıklayın")
+            {
+                HudDirective = "hint"
+            })
             .Add(createInput);
 
         groupsMenu = Track(ownerSlot, builder.Build());
@@ -627,7 +714,14 @@ public sealed class TagAdminMenu
             {
                 var group = g;
                 string status = group.Enabled ? "P" : "KAPALI • P";
-                rows.Add(new SubmenuComponent(
+                var permsSummary = group.Permissions.Count > 0
+                    ? HudMenuNodeHelper.CleanValue(string.Join(", ", group.Permissions), 28)
+                    : "Yetki yok";
+                var badgeText = group.Enabled ? "Aktif" : "Kapalı";
+                var badgeTone = group.Enabled ? "good" : "bad";
+                var tagClean = HudMenuNodeHelper.CleanValue(SafeMenuText(group.ChatTag, 14, "-"), 16);
+
+                rows.Add(new HudSubmenuComponent(
                     $"{SafeMenuText(group.Id, 14)} ({SafeMenuText(group.ChatTag, 14, "-")})\t{status}:{group.Priority} | {group.Members.Count}",
                     _ => BuildEntryEditMenu(ownerSlot, group, $"Grup: {group.Id}", () =>
                     {
@@ -635,13 +729,17 @@ public sealed class TagAdminMenu
                         SaveAndApply();
                     }, groupsMenu))
                 {
-                    Tag = group.Id
+                    Tag = group.Id,
+                    HudDirective = $"glyph=shield;sub=Yetkiler: {permsSummary};badge={badgeText};badgetone={badgeTone};tag={tagClean};tagtone=gold;note={group.Members.Count} üye;verb=edit"
                 });
             }
 
             if (rows.Count == 0)
             {
-                rows.Add(new TextComponent("Kayıtlı grup bulunmuyor"));
+                rows.Add(new HudTextComponent("Kayıtlı grup bulunmuyor")
+                {
+                    HudDirective = "glyph=shield;tone=faint"
+                });
             }
 
             ReplaceRows(groupsMenu, page, rows);
@@ -662,12 +760,12 @@ public sealed class TagAdminMenu
         return groupsMenu;
     }
 
-    private InputComponent CreateNewGroupInput(int ownerSlot, Func<IMenu?> groupsMenuProvider)
+    private HudInputComponent CreateNewGroupInput(int ownerSlot, Func<IMenu?> groupsMenuProvider)
     {
         bool creating = false;
-        InputComponent? input = null;
+        HudInputComponent? input = null;
 
-        input = new InputComponent(
+        input = new HudInputComponent(
             "Yeni Grup Oluştur",
             defaultValue: "",
             validator: raw =>
@@ -723,7 +821,8 @@ public sealed class TagAdminMenu
             EmptyText = "Sohbete Yaz",
             HintMessage = "[gold]Yeni grubun ID'sini sohbete yazın[default] (örn: [lime]mod, rehber, supervip[default])",
             InvalidText = "Geçersiz veya mevcut ID",
-            AcceptedText = "Grup oluşturuldu"
+            AcceptedText = "Grup oluşturuldu",
+            HudDirective = "glyph=add;sub=Sohbete yeni grup ID'si yazarak anında oluşturun;verb=edit"
         };
 
         return input;
@@ -820,39 +919,51 @@ public sealed class TagAdminMenu
 
         var builder = _core.Menu.CreateMenu("tagsystem.entry")
             .WithTitle(SafeMenuText(title, 28, "ETİKET DÜZENLE"))
-            .AddHeader(new TextComponent
+            .AddHeader(new HudTextComponent
             {
                 TextProvider = session =>
                 {
                     var preview = _service.BuildPreviewChatLine(session.Player, entry, "Merhaba!", stripped: true);
-                    return SafeMenuText(preview, 44, "-");
-                }
+                    return $"{SafeMenuText(preview, 28, "-")}\tÖnizleme";
+                },
+                HudDirective = "chip=gold;glyph=chat"
             })
-            .Add(new ButtonComponent("Sohbete Canlı Test Mesajı At", ctx =>
+            .AddHeader(new HudTextComponent("Renkleri A/D veya tıklayarak değiştirin — tüm değişiklikler anında kaydedilir")
+            {
+                HudDirective = "hint"
+            })
+            .Add(new HudButtonComponent("Sohbete Canlı Test Mesajı At", ctx =>
             {
                 _service.SendTestChat(ctx.Player, entry, "TagSystem etiket önizleme test mesajı!");
                 return ValueTask.CompletedTask;
-            }))
-            .Add(new ButtonComponent("Ekrana Önizleme Göster (SendCenter)", ctx =>
+            })
+            {
+                HudDirective = "glyph=chat;primary;sub=Bu etiketin gerçek renkli görünümünü sohbete yazar;verb=select"
+            })
+            .Add(new HudButtonComponent("Ekrana Önizleme Göster (SendCenter)", ctx =>
             {
                 var res = _manager.BuildResolvedTag(entry);
                 var cleanTag = string.IsNullOrEmpty(res.ChatTag) ? "" : $"{res.ChatTag} ";
                 var clan = string.IsNullOrEmpty(res.ScoreboardTag) ? "-" : res.ScoreboardTag;
                 ctx.Player.SendCenter($"[{clan}] {cleanTag}{PlayerHelper.GetName(ctx.Player)}: Merhaba Dünya!");
                 return ValueTask.CompletedTask;
-            }))
-            .Add(new ToggleComponent("Durum (Aktif)", entry.Enabled, change =>
+            })
+            {
+                HudDirective = "glyph=star;sub=Skorboard ve chat etiketini ekranın ortasında önizler;verb=select"
+            })
+            .Add(new HudToggleComponent("Durum (Aktif)", entry.Enabled, change =>
             {
                 entry.Enabled = change.NewValue;
                 SaveAndApply();
                 change.Session.Invalidate();
             })
             {
-                DefaultValueProvider = _ => entry.Enabled
+                DefaultValueProvider = _ => entry.Enabled,
+                HudDirective = "glyph=ready;sub=Kapalıysa bu etiket tanımı oyunculara uygulanmaz;verb=switch"
             })
             .Add(chatTagInput)
             .Add(clanTagInput)
-            .Add(new SelectorComponent<FrameOption>("Çerçeve / Sembol", FrameOptions, GetFrameIndex(entry.Frame), change =>
+            .Add(new HudSelectorComponent<FrameOption>("Çerçeve / Sembol", FrameOptions, GetFrameIndex(entry.Frame), change =>
             {
                 entry.Frame = change.NewValue.Key == "none" ? null : change.NewValue.Key;
                 SaveAndApply();
@@ -860,7 +971,8 @@ public sealed class TagAdminMenu
             })
             {
                 DefaultValueProvider = _ => GetFrameIndex(entry.Frame),
-                Formatter = f => f.Name
+                Formatter = f => f.Name,
+                HudDirective = "glyph=crown;verb=change"
             })
             .Add(new SwatchColorSelector("Etiket Rengi", ColorPalette, GetColorIndex(entry.ChatTagColor ?? "gold"), change =>
             {
@@ -997,47 +1109,73 @@ public sealed class TagAdminMenu
 
         var menu = _core.Menu.CreateMenu("tagsystem.settings")
             .WithTitle("GENEL AYARLAR")
-            .AddHeader(new TextComponent("Değişiklikler anında kaydedilir"))
-            .Add(new ToggleComponent("Scoreboard (Clan Tag)", s.EnableScoreboardTag, change =>
+            .AddHeader(new HudTextComponent("Değişiklikler anında kaydedilir")
+            {
+                HudDirective = "hint"
+            })
+            .Add(new HudToggleComponent("Scoreboard (Clan Tag)", s.EnableScoreboardTag, change =>
             {
                 s.EnableScoreboardTag = change.NewValue;
                 SaveAndApply();
-                if (!s.EnableScoreboardTag) _service.RestoreScoreboardAll();
+                if (s.EnableScoreboardTag)
+                {
+                    _service.EnsureClanTagsEnabled();
+                    _service.ApplyScoreboardAll(force: true);
+                }
+                else
+                {
+                    _service.RestoreScoreboardAll();
+                }
             })
             {
-                DefaultValueProvider = _ => s.EnableScoreboardTag
+                DefaultValueProvider = _ => s.EnableScoreboardTag,
+                HudDirective = "glyph=trophy;sub=TAB skor tablosunda clan tag gösterimini açar/kapatır;verb=switch"
             })
-            .Add(new ToggleComponent("Chat Formatlama", s.EnableChatTag, change =>
+            .Add(new HudToggleComponent("Chat Formatlama", s.EnableChatTag, change =>
             {
                 s.EnableChatTag = change.NewValue;
                 SaveAndApply();
             })
             {
-                DefaultValueProvider = _ => s.EnableChatTag
+                DefaultValueProvider = _ => s.EnableChatTag,
+                HudDirective = "glyph=chat;sub=Sohbet mesajlarına renkli etiket ve format uygular;verb=switch"
             })
-            .Add(new ToggleComponent("Yetki Sistemi (use_permissions)", s.UsePermissions, change =>
+            .Add(new HudToggleComponent("Yetki Sistemi (use_permissions)", s.UsePermissions, change =>
             {
                 s.UsePermissions = change.NewValue;
                 SaveAndApply();
             })
             {
-                DefaultValueProvider = _ => s.UsePermissions
+                DefaultValueProvider = _ => s.UsePermissions,
+                HudDirective = "glyph=key;sub=Grupları admin/VIP yetkileriyle otomatik eşleştirir;verb=switch"
             })
-            .Add(new ToggleComponent("Ölüler Sadece Ölülere Yazsın", c.DeadTalkOnlyToDead, change =>
+            .Add(new HudToggleComponent("Ölüler Sadece Ölülere Yazsın", c.DeadTalkOnlyToDead, change =>
             {
                 c.DeadTalkOnlyToDead = change.NewValue;
                 SaveAndApply();
             })
             {
-                DefaultValueProvider = _ => c.DeadTalkOnlyToDead
+                DefaultValueProvider = _ => c.DeadTalkOnlyToDead,
+                HudDirective = "glyph=mute;sub=Ölü oyuncuların sohbet mesajlarını canlılardan gizler;verb=switch"
             })
-            .Add(new ToggleComponent("Botlara Etiket Uygula", s.ApplyToBots, change =>
+            .Add(new HudToggleComponent("Botlara Etiket Uygula", s.ApplyToBots, change =>
             {
                 s.ApplyToBots = change.NewValue;
                 SaveAndApply();
             })
             {
-                DefaultValueProvider = _ => s.ApplyToBots
+                DefaultValueProvider = _ => s.ApplyToBots,
+                HudDirective = "glyph=bot;sub=Sunucudaki botlara da varsayılan etiketi uygular;verb=switch"
+            })
+            .Add(new HudButtonComponent("Skorboard Taglarını Şimdi Yenile", ctx =>
+            {
+                _service.EnsureClanTagsEnabled();
+                _service.ApplyScoreboardAll(force: true);
+                _service.Reply(ctx.Player, "[lime]Tüm oyuncuların skorboard tagları yeniden senkronize edildi.[default]");
+                return ValueTask.CompletedTask;
+            })
+            {
+                HudDirective = "glyph=refresh;primary;sub=sv_clantags_enabled kontrolü yapıp tüm TAB taglarını yeniler;verb=apply"
             })
             .Build();
 
@@ -1053,7 +1191,7 @@ public sealed class TagAdminMenu
 
         _manager.UpdateConfig(_config);
         _service.UpdateConfig(_config);
-        _service.ApplyScoreboardAll();
+        _service.ApplyScoreboardAll(force: true);
     }
 
     private static string NormalizeGroupId(string? raw) =>
